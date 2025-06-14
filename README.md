@@ -1,4 +1,4 @@
-# MININET A+ PARALLEL
+# MININET A* PARALLEL
 
 Este projeto implementa uma solução para visualização e análise de topologias de rede usando Mininet e Python.
 
