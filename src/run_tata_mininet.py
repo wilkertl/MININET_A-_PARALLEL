@@ -47,14 +47,14 @@ def check_requirements():
     
     if missing_packages:
         error("Pacotes necessários não encontrados: {}\n".format(', '.join(missing_packages)))
-        error("Por favor, instale-os usando: pip install " + " ".join(missing_packages))
+        error("Por favor, instale-os usando: pip install {}".format(" ".join(missing_packages)))
         sys.exit(1)
 
 def check_root():
     """Verifica se o script está sendo executado como root."""
     if os.geteuid() != 0:
         error("Este script precisa ser executado como root (sudo).\n")
-        error("Por favor, execute: sudo python3 " + sys.argv[0])
+        error("Por favor, execute: sudo python3 {}".format(sys.argv[0]))
         sys.exit(1)
 
 def check_vm_environment():
@@ -84,7 +84,7 @@ class GmlTopo(Topo):
     a partir de um arquivo GML do Topology Zoo/TopoHub.
     """
     def build(self, gml_file):
-        info(f"*** Lendo topologia do arquivo: {gml_file}\n")
+        info("*** Lendo topologia do arquivo: {}\n".format(gml_file))
         # Lê o arquivo GML usando NetworkX (tentando 'id' e 'label')
         G = None
         try:
@@ -100,7 +100,7 @@ class GmlTopo(Topo):
             switches[node_id] = self.addSwitch(switch_name)
             
             # Adiciona um host para cada switch para que a rede seja testável
-            host_name = f"h{switch_name}"
+            host_name = "h{}".format(switch_name)
             host = self.addHost(host_name)
             self.addLink(host, switches[node_id], bw=100) # Link host-switch com 100 Mbps
 
@@ -126,7 +126,7 @@ class GmlTopo(Topo):
                 switches[u], 
                 switches[v], 
                 bw=bw_mbps, 
-                delay=f"{delay_ms:.2f}ms"
+                delay="{:.2f}ms".format(delay_ms)
             )
 
 def run_network():
@@ -140,11 +140,11 @@ def run_network():
 
     file_name = TOPOLOGY_FILE_URL.split('/')[-1]
     if not os.path.exists(file_name):
-        info(f"*** Baixando o arquivo da topologia: {file_name}...\n")
+        info("*** Baixando o arquivo da topologia: {}...\n".format(file_name))
         try:
             subprocess.run(['wget', '-q', TOPOLOGY_FILE_URL], check=True)
         except subprocess.CalledProcessError:
-            error(f"Falha ao baixar o arquivo {file_name}.\n")
+            error("Falha ao baixar o arquivo {}.\n".format(file_name))
             sys.exit(1)
 
     try:
@@ -167,7 +167,7 @@ def run_network():
         CLI(net)
 
     except Exception as e:
-        error(f"Erro durante a execução: {str(e)}\n")
+        error("Erro durante a execução: {}\n".format(str(e)))
         sys.exit(1)
     finally:
         info("*** Parando a rede...\n")
