@@ -46,7 +46,7 @@ def check_requirements():
             missing_packages.append(package)
     
     if missing_packages:
-        error(f"Pacotes necessários não encontrados: {', '.join(missing_packages)}\n")
+        error("Pacotes necessários não encontrados: {}\n".format(', '.join(missing_packages)))
         error("Por favor, instale-os usando: pip install " + " ".join(missing_packages))
         sys.exit(1)
 
