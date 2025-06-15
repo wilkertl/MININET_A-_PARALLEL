@@ -1,85 +1,108 @@
-# MININET A* PARALLEL
+# Emulador de Rede Mininet com Topologia GML e Controlador ONOS
 
-Este projeto implementa uma solução para visualização e análise de topologias de rede usando Mininet e Python.
+Este projeto contém um script Python para emular topologias de rede complexas no Mininet, lendo a estrutura de um arquivo `.gml` local. O principal objetivo é conectar esta rede emulada a um controlador ONOS para visualização e gerenciamento centralizado.
 
-## Descrição
+O script foi desenvolvido e adaptado para funcionar em um ambiente de máquina virtual (VM) ONOS mais antigo, que possui um ecossistema baseado em **Python 2**.
 
-O projeto permite a visualização de topologias de rede através de um grafo interativo, onde:
-- Nós representam switches e hosts
-- Arestas representam conexões entre os elementos
-- A visualização é gerada a partir de arquivos GML (Graph Modeling Language)
+## Arquitetura da Solução
 
-## Requisitos
+1.  Um **script Python** atua como o orquestrador.
+2.  A biblioteca **NetworkX** é usada para ler e analisar o arquivo de topologia `.gml`.
+3.  A biblioteca **Mininet** cria os switches, hosts e links virtuais para emular a rede.
+4.  Cada switch OpenFlow na rede Mininet é configurado para se conectar ao **controlador ONOS** como seu cérebro.
+5.  A **GUI do ONOS** é usada para visualizar a topologia da rede em tempo real.
 
-- Python 3.x
-- Dependências Python (instaladas via pip):
-  ```
-  networkx
-  matplotlib
-  numpy
-  ```
+![Arquitetura da Solução](https://i.imgur.com/uGg0iNq.png)
 
-## Instalação
+## Pré-requisitos de Ambiente
 
-1. Clone o repositório:
-   ```bash
-   git clone [URL_DO_REPOSITORIO]
-   cd MININET_A-_PARALLEL
-   ```
+**ATENÇÃO:** Este projeto foi configurado para um ambiente muito específico.
 
-2. Crie e ative um ambiente virtual (opcional, mas recomendado):
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/Mac
-   # ou
-   .venv\Scripts\activate  # Windows
-   ```
+* **Máquina Virtual:** Desenvolvido em uma VM ONOS (baseada em Ubuntu 16.04 ou similar).
+* **ONOS:** Uma instância do ONOS deve estar rodando na VM.
+* **Interpretador Python:** **Python 2.7**. O script é incompatível com Python 3 devido às dependências do Mininet neste ambiente.
+* **Mininet:** Uma versão compatível com Python 2, geralmente localizada em `/home/sdn/mininet`.
+* **PIP:** O gerenciador de pacotes `pip` para Python 2.
 
-3. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 1. Configuração do Ambiente
 
-## Uso
+Siga estes passos para preparar a sua VM.
 
-Para visualizar uma topologia de rede:
+### 1.1 Preparando o Mininet
 
-```bash
-python src/render_topology.py examples/[arquivo_gml]
-```
+1.  **Clone o repositório:**
+    ```bash
+    git clone <url-do-seu-repositorio>
+    cd <nome-do-seu-repositorio>
+    ```
 
-Por exemplo:
-```bash
-python src/render_topology.py examples/tata_nld.gml
-```
+2.  **Verifique e Repare o `pip` (Recomendado):**
+    Para evitar problemas de instalação, é recomendado reinstalar o `pip` para Python 2:
+    ```bash
+    sudo apt-get update
+    sudo apt-get install --reinstall python-pip
+    ```
 
-A visualização será salva como `topology_visualization.png` no diretório de exemplos.
+3.  **Instale as dependências Python:**
+    Use o arquivo `requirements.txt` para instalar a versão exata do NetworkX compatível com Python 2:
+    ```bash
+    sudo pip install -r requirements.txt
+    ```
 
-## Estrutura do Projeto
+### 1.2 Preparando o ONOS
 
-```
-MININET_A-_PARALLEL/
-├── src/                    # Código fonte
-│   └── render_topology.py  # Script principal
-├── examples/               # Exemplos e recursos
-│   ├── tata_nld.gml       # Arquivo de exemplo GML
-│   └── topology_visualization.png
-├── docs/                   # Documentação
-├── tests/                  # Testes
-├── requirements.txt        # Dependências
-└── README.md              # Este arquivo
-```
+1.  **Acesse a GUI do ONOS:** Em seu computador principal, abra um navegador e acesse `http://<IP_DA_SUA_VM>:8181/onos/ui`. Faça login com `onos` / `rocks`.
 
-## Contribuição
+2.  **Ative o App OpenFlow (Passo Crucial):** O ONOS só atuará como controlador OpenFlow se a aplicação correspondente estiver ativa. Verifique e ative-a:
+    ```bash
+    # Conecte-se ao console do ONOS
+    ssh -p 8101 onos@localhost
+    # A senha é 'rocks'
 
-Contribuições são bem-vindas! Para contribuir:
+    # Dentro do console onos>, verifique os apps ativos
+    apps -a -s
 
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
+    # Se 'org.onosproject.openflow' não estiver na lista, ative-o:
+    app activate org.onosproject.openflow
 
-## Licença
+    # Saia do console
+    logout
+    ```
 
-Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes. 
+## 2. Configuração do Script
+
+1.  **Adicione seu Arquivo GML:**
+    Coloque seu arquivo de topologia (ex: `polska.gml`) dentro da pasta `src/`.
+
+2.  **Edite o Script:**
+    Abra o arquivo `src/run_tata_mininet.py` e altere a variável `LOCAL_GML_FILE` para corresponder ao nome do seu arquivo:
+    ```python
+    # Altere esta linha para o nome do seu arquivo
+    LOCAL_GML_FILE = 'polska.gml' 
+    ```
+
+## 3. Execução e Visualização
+
+1.  **Navegue até o diretório do script:**
+    ```bash
+    cd src
+    ```
+
+2.  **Execute o script principal:**
+    Use `sudo` e o interpretador `python` (não `python3`).
+    ```bash
+    sudo python run_tata_mininet.py
+    ```
+    O script irá iniciar o Mininet, e os switches se conectarão ao ONOS.
+
+3.  **Visualize na GUI do ONOS:**
+    * Volte para a janela do navegador com a interface do ONOS.
+    * Vá para a tela de **Topologia** (ícone de rede na barra lateral).
+    * A topologia da sua rede aparecerá na tela.
+    * **Dica:** Pressione a tecla `H` para mostrar/ocultar os hosts e `L` para mostrar/ocultar os nomes dos dispositivos.
+
+## Notas Técnicas Importantes
+
+* **Python 2 vs. 3:** A escolha pelo Python 2 é uma restrição imposta pela versão do Mininet presente na VM.
+* **`sudo` e `PYTHONPATH`:** O script adiciona `sys.path.append('/home/sdn/mininet')` para contornar um problema onde `sudo` não consegue localizar a biblioteca Mininet.
+* **Conexão ONOS:** O script está configurado para se conectar ao ONOS em `127.0.0.1:6653`. Este endereço funciona pois o Mininet e o ONOS estão na mesma VM.

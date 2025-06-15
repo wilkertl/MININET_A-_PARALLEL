@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Este script integra uma topologia LOCAL (arquivo GML) com o Mininet.
+Este script integra uma topologia LOCAL (arquivo GML) com o Mininet
+e conecta a rede a um controlador ONOS externo rodando na mesma maquina.
 """
 
 import os
@@ -10,13 +11,12 @@ import sys
 import math
 import random
 import networkx as nx
-import subprocess
 
 # Adiciona o caminho da biblioteca Mininet para o sudo
 sys.path.append('/home/sdn/mininet')
 
 from mininet.net import Mininet
-from mininet.node import OVSSwitch, Controller
+from mininet.node import OVSSwitch, RemoteController
 from mininet.topo import Topo
 from mininet.link import TCLink
 from mininet.cli import CLI
@@ -24,7 +24,7 @@ from mininet.log import setLogLevel, info, error
 
 # --- CONFIGURACOES ---
 # <<< MUITO IMPORTANTE: Coloque o nome do seu arquivo GML local aqui!
-# O arquivo deve estar na mesma pasta que este script (src/)
+# Presumo que ele esteja na mesma pasta que este script.
 LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
 
 MAX_BACKBONE_BW_GBPS = 10.0
@@ -85,7 +85,7 @@ class GmlTopo(Topo):
 
 def run_network():
     """
-    Funcao principal para construir e rodar a rede no Mininet.
+    Funcao principal para construir e rodar a rede no Mininet, conectando-a ao ONOS.
     """
     if os.geteuid() != 0:
         error("Este script precisa ser executado como root (sudo).\n")
@@ -99,12 +99,23 @@ def run_network():
     try:
         topo = GmlTopo(gml_file=LOCAL_GML_FILE)
 
+        info("*** Conectando ao controlador ONOS em 127.0.0.1:6653...\n")
+        onos_controller = RemoteController('c0', ip='127.0.0.1', port=6653)
+
         net = Mininet(topo=topo,
                       switch=OVSSwitch,
                       link=TCLink,
-                      controller=Controller,
-                      autoSetMacs=True)
+                      controller=onos_controller,
+                      autoSetMacs=True,
+                      build=False)
 
+        info("*** Adicionando interfaces de loopback aos switches...\n")
+        for switch in net.switches:
+            switch.cmd('ovs-vsctl set-controller', switch.name, 'tcp:127.0.0.1:6653')
+
+        info("*** Construindo a rede...\n")
+        net.build()
+        
         info("*** Iniciando a rede...\n")
         net.start()
 
@@ -112,14 +123,12 @@ def run_network():
         CLI(net)
 
     except Exception as e:
-        # Usamos 'as e' para compatibilidade com Python 2 e 3
         error("Erro durante a execucao: {}\n".format(e))
         if 'net' in locals():
             net.stop()
         sys.exit(1)
     finally:
         info("*** Parando a rede...\n")
-        # Garante que a rede seja parada mesmo se a CLI falhar
         if 'net' in locals() and net.terms:
              net.stop()
 
