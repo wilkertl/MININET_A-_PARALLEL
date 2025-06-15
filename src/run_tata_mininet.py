@@ -10,6 +10,7 @@ import sys
 import math
 import random
 import networkx as nx
+import subprocess
 
 # Adiciona o caminho da biblioteca Mininet para o sudo
 sys.path.append('/home/sdn/mininet')
@@ -113,7 +114,8 @@ def run_network():
     except Exception as e:
         # Usamos 'as e' para compatibilidade com Python 2 e 3
         error("Erro durante a execucao: {}\n".format(e))
-        net.stop()
+        if 'net' in locals():
+            net.stop()
         sys.exit(1)
     finally:
         info("*** Parando a rede...\n")
