@@ -14,22 +14,59 @@ Este script integra uma topologia do TopoHub com o Mininet.
 """
 
 import os
+import sys
 import random
 import math
 import re
 import networkx as nx
+import subprocess
+import shutil
 
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, Controller
 from mininet.topo import Topo
 from mininet.link import TCLink
 from mininet.cli import CLI
-from mininet.log import setLogLevel, info
+from mininet.log import setLogLevel, info, error
 
 # --- CONFIGURAÇÕES ---
 TOPOLOGY_FILE_URL = 'https://raw.githubusercontent.com/TopoHub/topologies/master/tata_nld.gml'
 MAX_BACKBONE_BW_GBPS = 10.0
 PROPAGATION_SPEED_KM_PER_MS = 200 # Velocidade da luz na fibra
+
+def check_requirements():
+    """Verifica se todos os requisitos estão instalados."""
+    required_packages = ['mininet', 'networkx']
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        error(f"Pacotes necessários não encontrados: {', '.join(missing_packages)}\n")
+        error("Por favor, instale-os usando: pip install " + " ".join(missing_packages))
+        sys.exit(1)
+
+def check_root():
+    """Verifica se o script está sendo executado como root."""
+    if os.geteuid() != 0:
+        error("Este script precisa ser executado como root (sudo).\n")
+        error("Por favor, execute: sudo python3 " + sys.argv[0])
+        sys.exit(1)
+
+def check_vm_environment():
+    """Verifica se o ambiente é adequado para execução em VM."""
+    # Verifica se está rodando em uma VM
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            cpuinfo = f.read()
+            if 'hypervisor' not in cpuinfo.lower():
+                info("Aviso: Não detectado ambiente de virtualização. O script pode não funcionar corretamente.\n")
+    except:
+        info("Não foi possível verificar o ambiente de virtualização.\n")
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calcula a distância geodésica em km."""
@@ -81,7 +118,7 @@ class GmlTopo(Topo):
                 delay_ms = 1.0  # Delay padrão de 1ms se não houver coordenadas
 
             # Atribui banda aleatória (convertida para Mbps)
-            bw_mbps = random.uniform(100.0, MAX_BACKBONE_W_GBPS * 1000)
+            bw_mbps = random.uniform(100.0, MAX_BACKBONE_BW_GBPS * 1000)
 
             # Adiciona o link entre os switches com os parâmetros calculados
             # O delay precisa ser uma string com unidade (ex: '0.5ms')
@@ -96,32 +133,46 @@ def run_network():
     """
     Função principal para baixar, construir e rodar a rede no Mininet.
     """
+    # Verifica requisitos antes de prosseguir
+    check_requirements()
+    check_root()
+    check_vm_environment()
+
     file_name = TOPOLOGY_FILE_URL.split('/')[-1]
     if not os.path.exists(file_name):
         info(f"*** Baixando o arquivo da topologia: {file_name}...\n")
-        os.system(f"wget -q {TOPOLOGY_FILE_URL}")
+        try:
+            subprocess.run(['wget', '-q', TOPOLOGY_FILE_URL], check=True)
+        except subprocess.CalledProcessError:
+            error(f"Falha ao baixar o arquivo {file_name}.\n")
+            sys.exit(1)
 
-    # Cria uma instância da nossa topologia customizada
-    topo = GmlTopo(gml_file=file_name)
+    try:
+        # Cria uma instância da nossa topologia customizada
+        topo = GmlTopo(gml_file=file_name)
 
-    # Inicia o Mininet
-    # Usamos TCLink para que os parâmetros de 'bw' e 'delay' sejam aplicados
-    net = Mininet(topo=topo,
-                  switch=OVSSwitch,
-                  link=TCLink,
-                  controller=Controller,
-                  autoSetMacs=True)
+        # Inicia o Mininet
+        net = Mininet(topo=topo,
+                      switch=OVSSwitch,
+                      link=TCLink,
+                      controller=Controller,
+                      autoSetMacs=True)
 
-    info("*** Iniciando a rede...\n")
-    net.start()
+        info("*** Iniciando a rede...\n")
+        net.start()
 
-    info("*** Rede emulada está no ar! Iniciando a CLI do Mininet.\n")
-    info("Use comandos como 'nodes', 'net', 'pingall'.\n")
-    info("Para testar o delay, tente: 'h0 ping h100'.\n")
-    CLI(net)
+        info("*** Rede emulada está no ar! Iniciando a CLI do Mininet.\n")
+        info("Use comandos como 'nodes', 'net', 'pingall'.\n")
+        info("Para testar o delay, tente: 'h0 ping h100'.\n")
+        CLI(net)
 
-    info("*** Parando a rede...\n")
-    net.stop()
+    except Exception as e:
+        error(f"Erro durante a execução: {str(e)}\n")
+        sys.exit(1)
+    finally:
+        info("*** Parando a rede...\n")
+        if 'net' in locals():
+            net.stop()
 
 if __name__ == '__main__':
     setLogLevel('info')
