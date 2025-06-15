@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+#-*-coding: utf-8 -*-
 """
 Este script integra uma topologia do TopoHub com o Mininet.
 
@@ -144,7 +145,7 @@ def run_network():
     if not os.path.exists(file_name):
         info("*** Baixando o arquivo da topologia: {}...\n".format(file_name))
         try:
-            subprocess.run(['wget', '-q', TOPOLOGY_FILE_URL], check=True)
+            subprocess.check_call(['wget', '-q', TOPOLOGY_FILE_URL])
         except subprocess.CalledProcessError:
             error("Falha ao baixar o arquivo {}.\n".format(file_name))
             sys.exit(1)
