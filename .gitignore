@@ -38,7 +38,4 @@ ENV/
 Thumbs.db
 
 # Project specific
-*.png
-*.gml
-!examples/*.gml
 wget-log
