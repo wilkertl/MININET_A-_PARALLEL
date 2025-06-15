@@ -41,3 +41,4 @@ Thumbs.db
 *.png
 *.gml
 !examples/*.gml
+wget-log
