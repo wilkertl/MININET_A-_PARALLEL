@@ -24,8 +24,8 @@ from mininet.log import setLogLevel, info, error
 
 # --- CONFIGURACOES ---
 # <<< MUITO IMPORTANTE: Coloque o nome do seu arquivo GML local aqui!
-# Presumo que ele esteja na mesma pasta que este script.
-LOCAL_GML_FILE = 'tata_nld.gml' 
+# O arquivo deve estar na mesma pasta que este script (src/)
+LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
 
 MAX_BACKBONE_BW_GBPS = 10.0
 PROPAGATION_SPEED_KM_PER_MS = 200 # Velocidade da luz na fibra
