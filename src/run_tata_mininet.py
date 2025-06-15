@@ -22,6 +22,8 @@ import networkx as nx
 import subprocess
 import shutil
 
+sys.path.append('/home/sdn/mininet') # Adiciona o caminho da biblioteca Mininet
+
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, Controller
 from mininet.topo import Topo
