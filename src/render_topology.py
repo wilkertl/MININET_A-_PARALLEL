@@ -10,11 +10,11 @@ do arquivo GML para gerar uma visualização geográfica precisa.
 import os
 import random
 import re
-import networkx as nx
-import matplotlib.pyplot as plt
+import networkx as nx # type: ignore
+import matplotlib.pyplot as plt # type: ignore
 
 # --- CONFIGURAÇÕES GLOBAIS ---
-TOPOLOGY_FILE_URL = 'https://raw.githubusercontent.com/TopoHub/topologies/master/tata_nld.gml'
+TOPOLOGY_FILE_URL = '/home/matheus-lucas/Estudos/UFG/8_SEM/CP/projeto_final_cp/MININET_A-_PARALLEL/src/tata_nld.gml'
 MAX_BACKBONE_BW_GBPS = 10.0
 
 # --- FIM DAS CONFIGURAÇÕES ---

@@ -1,10 +1,10 @@
 import networkx as nx # type: ignore
 from onos_api import *
+import time
 
 hosts = get_hosts()
 switches = get_switches()
 links = get_links()
-print(switches)
 
 def find_port(src, dst):
     """
@@ -54,10 +54,10 @@ def create_flow(from_hop, to_hop, final_dst):
         to_hop (str): Switch ID or MAC ADDR e.g. "of:0000000000000002" or "00:00:00:00:00:A1"
         final_dst (src): MAC ADDR e.g. "00:00:00:00:00:A1"
     """
-    print(f"Generating flow from {from_hop} to {to_hop} when trying to reach {final_dst}")
+    #print(f"Generating flow from {from_hop} to {to_hop} when trying to reach {final_dst}")
     port = find_port(from_hop, to_hop)
     status, msg = push_flow(from_hop, final_dst, port)
-    print(f"  → {status}: {msg}")
+    #print(f"  → {status}: {msg}")
     pass
 
 def install_all_routes():
@@ -74,9 +74,6 @@ def install_all_routes():
 
             path = nx.shortest_path(graph, source=source, target=target)
             paths.append(path) 
-            #print(f"Installing intent between {source} and {target}")
-            #status, msg = push_intent(app_id, source, target)
-            #print(f"  → {status}: {msg}")
 
     for path in paths:
         final_dst = path[len(path) - 1]
@@ -91,7 +88,10 @@ def install_all_routes():
 
 def main():
     print("Installing routing intents for all host pairs...")
+    start = time.time()
     install_all_routes()
+    total_time = time.time() - start
+    print(f"Time spend to generate routs {total_time}")
     print("Done.")
 
 if __name__ == "__main__":

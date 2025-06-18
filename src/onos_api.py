@@ -76,8 +76,34 @@ def push_flow(device_id, eth_dst, out_port):
 
     return response.status_code, response.text
 
+# ==== 1. Get Topology ====
+def get_topology():
+    url = f"{BASE_URL}/topology"
+    response = requests.get(url, auth=AUTH)
+    return response.json()
+
+def get_port_statistics(device_id):
+    url = f"{BASE_URL}/statistics/ports/{device_id}"
+    response = requests.get(url, auth=AUTH)
+    return response.json()
+
+def get_metrics():
+    url = f"{BASE_URL}/metrics"
+    response = requests.get(url, auth=AUTH)
+    return response.json()
+
+
 def main():
-    push_flow("of:000000000000000d", "00:00:00:00:00:03", "2")
+    #push_flow("of:000000000000000d", "00:00:00:00:00:03", "2")
+    print(get_topology())
+    print()
+    metrics = get_metrics()["metrics"]
+    print(metrics[0])
+    print()
+    print(metrics[1])
+    print()
+    ports = get_port_statistics("of:000000000000000d")["statistics"][0]["ports"]
+    print(ports[0])
 
 if __name__ == "__main__":
     main()
