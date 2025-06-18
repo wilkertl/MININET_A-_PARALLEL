@@ -20,7 +20,7 @@ def run():
     setLogLevel('info')
     topo = SimpleTopo()
 
-    net = Mininet(topo=topo, build=False, controller=None)
+    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
 
     # Adiciona múltiplos controladores
     for i, ip in enumerate(CONTROLERS):
@@ -30,5 +30,10 @@ def run():
 
     net.build()
     net.start()
+
+    # Descobrindo todos os hosts
+    for host in net.hosts:
+        host.cmd("ping -c1 10.0.0.1 &")
+
     return net
 

@@ -37,6 +37,7 @@ class App():
 def main():
     net = network.run()
     app = App(net)
+    app.main_loop()
 
 if __name__ == '__main__':
     main()
