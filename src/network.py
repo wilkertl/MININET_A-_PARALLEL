@@ -24,14 +24,14 @@ def run():
 
     # Adiciona múltiplos controladores
     for i, ip in enumerate(CONTROLERS):
-        name = 'c{}'.format(i)
+        name = f"c{i}"
         c = RemoteController(name, ip=ip, port=6653)
         net.addController(c)
 
     net.build()
     net.start()
 
-    print("Rede iniciada com os controladores {}".format(', '.join(CONTROLERS)))
+    print("Rede iniciada com os controladores {CONTROLERS}")
     net.pingAll()
 
     input("Pressione Enter para encerrar...")
