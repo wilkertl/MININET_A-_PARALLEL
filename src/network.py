@@ -4,7 +4,6 @@ from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.node import RemoteController
 from mininet.log import setLogLevel
-import sys
 
 CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 
@@ -18,6 +17,7 @@ class SimpleTopo(Topo):
         self.addLink(h2, s1)
 
 def run():
+    setLogLevel('info')
     topo = SimpleTopo()
 
     net = Mininet(topo=topo, build=False, controller=None)
@@ -30,13 +30,5 @@ def run():
 
     net.build()
     net.start()
+    return net
 
-    print("Rede iniciada com os controladores {CONTROLERS}")
-    net.pingAll()
-
-    input("Pressione Enter para encerrar...")
-    net.stop()
-
-if __name__ == '__main__':
-    setLogLevel('info')
-    run()
