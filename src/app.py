@@ -14,10 +14,9 @@ class App():
 	        {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
             {"name": "gml_net", "function": self.gml_net},
+            {"name": "clean_network", "function": self.clean_network},
             {"name": "create_routes", "function": self.create_routes}
         ]
-
-        self.clean_network()
 
     def main_loop(self):
         print("""Type "help" to see a list of possible commands """)
