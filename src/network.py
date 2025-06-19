@@ -211,7 +211,7 @@ if __name__ == '__main__':
     # net = run(Tower())
     
     # Para usar arquivo GML:
-    LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
+    LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
     net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
 
     info("*** Iniciando CLI...\n")
