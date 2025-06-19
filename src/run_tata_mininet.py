@@ -100,7 +100,7 @@ def run_network():
         topo = GmlTopo(gml_file=LOCAL_GML_FILE)
 
         info("*** Conectando ao controlador ONOS em 127.0.0.1:6653...\n")
-        onos_controller = RemoteController('c0', ip='127.0.0.1', port=6653)
+        onos_controller = RemoteController('c0', ip='172.17.0.5', port=6653)
 
         net = Mininet(topo=topo,
                       switch=OVSSwitch,
