@@ -1,10 +1,11 @@
 from network import *
 from router import Router
+import os
 
 class App():
     def __init__(self):
         self.net = None
-        self.router = Router("127.0.0.1", 7001)
+        self.router = Router()
         self.api = self.router.api
         self.commands = [
             {"name": "help", "function": self.help},
