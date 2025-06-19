@@ -23,7 +23,7 @@ CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
 MIN_BACKBONE_BW_MBPS = 100.0  # Banda mínima entre switches (100 Mbps)
-MAX_BACKBONE_BW_MBPS = 10000.0  # Banda máxima entre switches (10 Gbps)
+MAX_BACKBONE_BW_MBPS = 1000.0  # Banda máxima entre switches (1 Gbps)
 PROPAGATION_SPEED_KM_PER_MS = 200  # Velocidade da luz na fibra
 MIN_HOSTS_PER_EDGE_SWITCH = 1
 MAX_HOSTS_PER_EDGE_SWITCH = 7
