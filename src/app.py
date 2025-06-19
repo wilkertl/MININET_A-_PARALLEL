@@ -1,10 +1,13 @@
 from itertools import permutations
+from functools import partial
 import random
 from network import *
 from router import Router
 import re
-from multiprocessing import Pool, cpu_count
+from multiprocessing.dummy import Pool
 import time
+
+cpu_count=3
 
 def iperf_test(pair, net, udp=False, time_sec=5, bandwidth='10M'):
     src_name, dst_name = pair
@@ -151,9 +154,12 @@ class App():
         hosts_names = [host.name for host in self.net.hosts]
         pairs = [(h1, h2) for h1 in hosts_names for h2 in hosts_names if h1 != h2]
 
-        with Pool(processes=min(cpu_count(), len(pairs))) as pool:
-            results = pool.map(ping_pair, pairs, self.net)
+        f = partial(ping_pair, net=self.net)
 
+        with Pool(processes=min(cpu_count, len(pairs))) as pool:
+            results = pool.map(f, pairs)
+      
+        print(results)
         return results
 
     def run_iperf_udp(self):
@@ -164,10 +170,12 @@ class App():
         pairs = list(permutations(hosts_names, 2))  # (src, dst), no self-pairs
 
         random.shuffle(pairs)
+        f = partial(iperf_test, net=self.net, udp=udp)
 
-        with Pool(processes=min(cpu_count(), len(pairs))) as pool:
-            results = pool.map(iperf_test, pairs, self.net, udp=udp)
+        with Pool(processes=min(cpu_count, len(pairs))) as pool:
+            results = pool.map(f, pairs)
 
+        print(results)
         return results
 
 
