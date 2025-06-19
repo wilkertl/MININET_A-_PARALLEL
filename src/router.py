@@ -71,7 +71,7 @@ class Router():
 
 
     def heuristic(u, v):
-    return 0
+        return 0
     
     def install_all_routes(self):
         graph = self.build_graph()
