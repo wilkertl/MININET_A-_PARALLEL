@@ -1,22 +1,37 @@
-from network import *
 from router import Router
 import os
+
+# Detecta se o Mininet está disponível
+MININET_AVAILABLE = False
+try:
+    from network import *
+    MININET_AVAILABLE = True
+except ImportError:
+    print("Mininet não detectado - comandos de rede local desabilitados")
 
 class App():
     def __init__(self):
         self.net = None
         self.router = Router()
         self.api = self.router.api
+        
+        # Comandos básicos
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
-            {"name": "ping_all", "function": self.ping_all},
-	        {"name": "simple_net", "function": self.simple_net},
-            {"name": "tower_net", "function": self.tower_net},
-            {"name": "gml_net", "function": self.gml_net},
-            {"name": "clean_network", "function": self.clean_network},
             {"name": "create_routes", "function": self.create_routes}
         ]
+        
+        # Comandos do Mininet
+        if MININET_AVAILABLE:
+            mininet_commands = [
+                {"name": "ping_all", "function": self.ping_all},
+                {"name": "simple_net", "function": self.simple_net},
+                {"name": "tower_net", "function": self.tower_net},
+                {"name": "gml_net", "function": self.gml_net},
+                {"name": "clean_network", "function": self.clean_network}
+            ]
+            self.commands.extend(mininet_commands)
 
     def main_loop(self):
         print("""Type "help" to see a list of possible commands """)
@@ -35,36 +50,55 @@ class App():
         print(f"Command ({cmd}) not found.")
 	
     def clean_network(self):
+        if not MININET_AVAILABLE:
+            self.api.delete_all_flows()
+            self.api.delete_inactive_devices()
+            return
+            
         self.api.delete_all_flows()
-
         if self.net:
             self.net.stop()
-
         self.net = None
         self.api.delete_inactive_devices()
 
     def simple_net(self):
+        if not MININET_AVAILABLE:
+            print("Mininet não disponível!")
+            return
         self.clean_network()
         self.net = run(SimpleTopo())
 
     def tower_net(self):
+        if not MININET_AVAILABLE:
+            print("Mininet não disponível!")
+            return
         self.clean_network()
         self.net = run(Tower())
 
     def gml_net(self):
+        if not MININET_AVAILABLE:
+            print("Mininet não disponível!")
+            return
         self.clean_network()
         gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
         self.net = run(GmlTopo(gml_file=gml_file))
 
     def help(self):
+        print("Comandos disponíveis:")
         for cmd in self.commands:
-            print(cmd["name"])
+            print(f"  {cmd['name']}")
+        
+        if not MININET_AVAILABLE:
+            print("\n[Comandos do Mininet desabilitados - Mininet não detectado]")
 
     def exit_app(self):
         self.clean_network()
         exit(0)
 
     def ping_all(self):
+        if not MININET_AVAILABLE or not self.net:
+            print("Mininet não disponível ou rede não criada!")
+            return
         self.net.pingAll()
 
     def create_routes(self):
