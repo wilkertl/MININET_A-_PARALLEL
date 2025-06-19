@@ -184,6 +184,7 @@ def run(topo):
 
     net.build()
     net.start()
+    sleep(10)
 
     # Descobrindo todos os hosts
     for host in net.hosts:
