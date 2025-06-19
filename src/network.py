@@ -1,9 +1,10 @@
-#!/usr/bin/env python
-
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.node import RemoteController
 from mininet.log import setLogLevel
+from threading import Lock
+from onos_api import OnosApi
+from time import sleep
 
 CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 
@@ -48,9 +49,12 @@ def run(topo):
     net.build()
     net.start()
 
+    sleep(10)
+
     # Descobrindo todos os hosts
     for host in net.hosts:
-        host.cmd("ping -c1 10.0.0.1 &")
+        host.lock = Lock()
+        host.cmd("ping -c 1 10.0.0.1 &")
 
     return net
 

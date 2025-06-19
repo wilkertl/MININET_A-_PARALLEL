@@ -5,76 +5,17 @@ from network import *
 from router import Router
 import re
 from multiprocessing.dummy import Pool
-import time
+from time import sleep
+import threading
 
-cpu_count=3
+def unique_host_pairs(hosts):
+    random.shuffle(hosts)
 
-def iperf_test(pair, net, udp=False, time_sec=5, bandwidth='10M'):
-    src_name, dst_name = pair
-    src = net.get(src_name)
-    dst = net.get(dst_name)
-    proto = 'UDP' if udp else 'TCP'
+    pairs = []
+    for i in range(0, len(hosts) - 1, 2):
+        pairs.append((hosts[i], hosts[i+1]))
 
-    # Run iperf client from src
-    cmd = f'iperf -c {dst.IP()} -t {time_sec}'
-    if udp:
-        cmd += f' -u -b {bandwidth}'
-
-    output = src.cmd(cmd)
-
-    result = {
-        'src': src.name,
-        'dst': dst.name,
-        'protocol': proto,
-        'bandwidth': None,
-        'jitter': None,
-        'loss': None
-    }
-
-    # Parse output
-    if udp:
-        match = re.search(r'([\d.]+)\s+Mbits/sec\s+([\d.]+)\s+ms\s+(\d+)/(\d+)', output)
-        if match:
-            bw, jitter, lost, total = match.groups()
-            result.update({
-                'bandwidth': float(bw),
-                'jitter': float(jitter),
-                'loss': 100 * int(lost) / int(total)
-            })
-    else:
-        match = re.search(r'([\d.]+)\s+Mbits/sec', output)
-        if match:
-            result['bandwidth'] = float(match.group(1))
-
-    return result
-
-def ping_pair(pair, net):
-    src_name, dst_name = pair
-    src = net.get(src_name)
-    dst = net.get(dst_name)
-    cmd = f'ping -c 3 {dst.IP()}'
-    output = src.cmd(cmd)
-
-    # Packet loss
-    loss_match = re.search(r'(\d+)% packet loss', output)
-    loss = int(loss_match.group(1)) if loss_match else None
-
-    # RTT
-    rtt_match = re.search(r'rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)', output)
-    if rtt_match:
-        rtt_min, rtt_avg, rtt_max, rtt_mdev = map(float, rtt_match.groups())
-    else:
-        rtt_min = rtt_avg = rtt_max = rtt_mdev = None
-
-    return {
-        'src': src.name,
-        'dst': dst.name,
-        'loss': loss,
-        'rtt_min': rtt_min,
-        'rtt_avg': rtt_avg,
-        'rtt_max': rtt_max,
-        'rtt_mdev': rtt_mdev
-    }
+    return pairs
 
 class App():
     def __init__(self):
@@ -84,13 +25,14 @@ class App():
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
-            {"name": "ping_all", "function": self.ping_all},
-	        {"name": "simple_net", "function": self.simple_net},
+            {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
+            {"name": "ping_random", "function": self.ping_random},
+            {"name": "ping_all", "function": self.ping_all},
+            {"name": "iperf_random", "function": self.iperf_random},
+            {"name": "iperf_all", "function": self.iperf_all},
             {"name": "create_routes", "function": self.create_routes},
-            {"name": "ping", "function": self.ping_all_parallel},
-            {"name": "iperf_tcp", "function": self.run_iperf},
-            {"name": "iperf_udp", "function": self.run_iperf_udp}
+            {"name": "traffic", "function": self.start_dummy_traffic},
         ]
 
         self.clean_network()
@@ -136,52 +78,70 @@ class App():
         self.clean_network()
         exit(0)
 
-    def ping_all(self):
-        self.net.pingAll()
-
     def create_routes(self):
         self.router.update()
         self.router.install_all_routes()
-    
-    def ping_all_parallel(self):
-        hosts_names = [host.name for host in self.net.hosts]
-        pairs = [(h1, h2) for h1 in hosts_names for h2 in hosts_names if h1 != h2]
 
-        f = partial(ping_pair, net=self.net)
+    def ping_random(self):
+        h1, h2 = random.sample(self.net.hosts, 2)
+        pair = (h1, h2)
 
-        with Pool(processes=min(cpu_count, len(pairs))) as pool:
-            results = pool.map(f, pairs)
-      
+        results = self.net.ping(pair)
         print(results)
         return results
 
-    def run_iperf_udp(self):
-        return self.run_iperf(udp=True)
+    def ping_all(self):
+        self.net.pingAll()
 
-    def run_iperf(self, udp=False):
-        hosts_names = [host.name for host in self.net.hosts]
-        pairs = list(permutations(hosts_names, 2))  # (src, dst), no self-pairs
+    def iperf_random(self):
+        h1, h2 = random.sample(self.net.hosts, 2)
+        pair = (h1, h2)
+        self.net.iperf(pair)
 
-        # Start iperf server on dst
-        for host in self.net.hosts:
-            host.cmd('killall -9 iperf')
-            arg = '-u' if udp else ''
-            host.cmd(f'iperf -s {arg} &')
+    def iperf_all(self):
+        threads = []
+        results = []
+        pairs = unique_host_pairs(self.net.hosts)
 
-        time.sleep(1)  # Wait for server to start
-        random.shuffle(pairs)
-        f = partial(iperf_test, net=self.net, udp=udp)
+        def worker(pair, net, results):
+            h1, h2 = pair
 
-        with Pool(processes=min(cpu_count, len(pairs))) as pool:
-            results = pool.map(f, pairs)
+            print(f"Lock {h1.name} and {h2.name}")
+            #with h1.lock and h2.lock:
+            result = net.iperf(pair)
+            print(f"Free {h1.name} and {h2.name}")
 
-        # Stop iperf server
-        for host in self.net.hosts:
-            host.cmd('killall -9 iperf')
 
-        print(results)
-        return results
+            results.append(result)
 
+        for pair in pairs:
+            args = (pair, self.net, results)
+            t = threading.Thread(target=worker, args=args)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        for r in results:
+            print(r)
+	
+    def start_dummy_traffic(self):
+        hosts = self.net.hosts[:]
+        threads = []
+
+        def worker(h1, h2):
+            h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 1G")
+
+        pairs = unique_host_pairs(hosts)
+
+        for h1, h2 in pairs:
+            t = threading.Thread(target=worker, args=(h1, h2))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
 
 def main():
     app = App()
