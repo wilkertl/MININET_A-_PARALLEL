@@ -91,7 +91,7 @@ class Router():
 def main():
     print("Installing routing intents for all host pairs...")
     start = time.time()
-    router = Router("192.168.56.101", 7001)
+    router = Router()
     router.install_all_routes()
     total_time = time.time() - start
     print(f"Time spend to generate routs {total_time}")
