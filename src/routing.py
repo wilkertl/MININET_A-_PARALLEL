@@ -1,95 +1,103 @@
 import networkx as nx # type: ignore
-from onos_api import *
+from onos_api import OnosApi
 import time
 
-hosts = get_hosts()
-switches = get_switches()
-links = get_links()
+class Router():
+    def __init__(self, onos_ip, port):
+        self.hosts = None
+        self.switches = None
+        self.links = None
+        self.api = OnosApi(onos_ip, port)
+        self.update()
 
-def find_port(src, dst):
-    """
-    Returns the port that connects switch src to device dst
-
-    Args:
-        src (str): e.g., "of:0000000000000001"
-        dst (str): e.g., "of:0000000000000002" or "00:00:00:00:00:A1"
-    """
-
-    # if the link is beetween two switches
-    for link in links:
-        if link['src']['device'] == src and link['dst']['device'] == dst:
-            return link['src']['port']
-    
-    # If the link is beetwween a switch and a host
-    for host in hosts:
-        if host['mac'] == dst and host['locations'][0]['elementId'] == src:
-            return host['locations'][0]['port']
-
-    return None
+    def update(self):
+        self.hosts = self.api.get_hosts()
+        self.switches = self.api.get_switches()
+        self.links = self.api.get_links()
 
 
-def build_graph():
-    G = nx.Graph()
+    def find_port(self, src, dst):
+        """
+        Returns the port that connects switch src to device dst
 
-    for switch in switches:
-        G.add_node(switch)
+        Args:
+            src (str): e.g., "of:0000000000000001"
+            dst (str): e.g., "of:0000000000000002" or "00:00:00:00:00:A1"
+        """
 
-    # Add host edges
-    for host in hosts:
-        switch = host['locations'][0]['elementId']
-        G.add_node(host['mac'])                     # add host node (e.g., MAC)
-        G.add_edge(host['mac'], switch)
+        # if the link is beetween two switches
+        for link in self.links:
+            if link['src']['device'] == src and link['dst']['device'] == dst:
+                return link['src']['port']
+        
+        # If the link is beetwween a switch and a host
+        for host in self.hosts:
+            if host['mac'] == dst and host['locations'][0]['elementId'] == src:
+                return host['locations'][0]['port']
 
-    for link in links:
-        G.add_edge(link['src']['device'], link['dst']['device'])
+        return None
 
-    return G
 
-def create_flow(from_hop, to_hop, final_dst):
-    """
-    Create a flow that goes from "from_hop" to "to_hop" when trying to reach "final_dst¨
+    def build_graph(self):
+        G = nx.Graph()
 
-    Args:
-        from_hop (str): Switch IDe.g. "of:0000000000000001"
-        to_hop (str): Switch ID or MAC ADDR e.g. "of:0000000000000002" or "00:00:00:00:00:A1"
-        final_dst (src): MAC ADDR e.g. "00:00:00:00:00:A1"
-    """
-    #print(f"Generating flow from {from_hop} to {to_hop} when trying to reach {final_dst}")
-    port = find_port(from_hop, to_hop)
-    status, msg = push_flow(from_hop, final_dst, port)
-    #print(f"  → {status}: {msg}")
-    pass
+        for switch in self.switches:
+            G.add_node(switch)
 
-def install_all_routes():
-    graph = build_graph()
-    paths = []
+        # Add host edges
+        for host in self.hosts:
+            switch = host['locations'][0]['elementId']
+            G.add_node(host['mac'])                     # add host node (e.g., MAC)
+            G.add_edge(host['mac'], switch)
 
-    for src in hosts:
-        for tgt in hosts:
-            source = src['mac']
-            target = tgt['mac']
+        for link in self.links:
+            G.add_edge(link['src']['device'], link['dst']['device'])
 
-            if source == target:
-                continue
+        return G
 
-            path = nx.shortest_path(graph, source=source, target=target)
-            paths.append(path) 
+    def create_flow(self, from_hop, to_hop, final_dst):
+        """
+        Create a flow that goes from "from_hop" to "to_hop" when trying to reach "final_dst¨
 
-    for path in paths:
-        final_dst = path[len(path) - 1]
-        for i in range(len(path) - 1):
-            hop = path[i]
-            next_hop = path[i+1]
+        Args:
+            from_hop (str): Switch IDe.g. "of:0000000000000001"
+            to_hop (str): Switch ID or MAC ADDR e.g. "of:0000000000000002" or "00:00:00:00:00:A1"
+            final_dst (src): MAC ADDR e.g. "00:00:00:00:00:A1"
+        """
+        port = self.find_port(from_hop, to_hop)
+        status, msg = self.api.push_flow(from_hop, final_dst, port)
 
-            if hop not in switches:
-                continue
+    def install_all_routes(self):
+        graph = self.build_graph()
+        paths = []
 
-            create_flow(from_hop=hop, to_hop=next_hop, final_dst=final_dst)
+        for src in self.hosts:
+            for tgt in self.hosts:
+                source = src['mac']
+                target = tgt['mac']
+
+                if source == target:
+                    continue
+
+                path = nx.shortest_path(graph, source=source, target=target)
+                paths.append(path) 
+
+        for path in paths:
+            final_dst = path[len(path) - 1]
+            for i in range(len(path) - 1):
+                hop = path[i]
+                next_hop = path[i+1]
+
+                if hop not in self.switches:
+                    continue
+
+            self.create_flow(from_hop=hop, to_hop=next_hop, final_dst=final_dst)
 
 def main():
     print("Installing routing intents for all host pairs...")
     start = time.time()
-    install_all_routes()
+    router = Router("127.0.0.1", 7001)
+    router.install_all_routes()
     total_time = time.time() - start
     print(f"Time spend to generate routs {total_time}")
     print("Done.")

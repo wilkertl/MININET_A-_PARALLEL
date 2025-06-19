@@ -16,9 +16,26 @@ class SimpleTopo(Topo):
         self.addLink(h1, s1)
         self.addLink(h2, s1)
 
-def run():
+class Tower( Topo ):
+    def build( self ):
+        spines = [
+            self.addSwitch( 's1' ),
+            self.addSwitch( 's2' )
+       ]
+
+        # Now create the leaf switches, their hosts and connect them together
+        for i in range(4):
+            sn = i + 1
+            leaf = self.addSwitch(f's1{sn}')
+            for spine in spines:
+                self.addLink(leaf, spine)
+
+            for j in range(5):
+                host = self.addHost(f'h{sn}{j+1}')
+                self.addLink( host, leaf )
+
+def run(topo):
     setLogLevel('info')
-    topo = SimpleTopo()
 
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
 

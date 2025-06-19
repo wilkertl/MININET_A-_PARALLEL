@@ -1,12 +1,17 @@
-import network
+from network import *
+from routing import Router
 
 class App():
-    def __init__(self, net):
-        self.net = net
+    def __init__(self):
+        self.net = None
+        self.router = Router("127.0.0.1", 7001)
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
-            {"name": "start", "function": self.start}
+            {"name": "ping_all", "function": self.ping_all},
+	        {"name": "simple_net", "function": self.simple_net},
+            {"name": "tower_net", "function": self.tower_net},
+            {"name": "create_routes", "function": self.create_routes}
         ]
 
     def main_loop(self):
@@ -14,7 +19,9 @@ class App():
         while True:
             cmd = input("A*> ")
             fun = self.get_function(cmd)
-            fun()
+
+            if fun:
+                fun()
 
     def get_function(self, cmd):
         for command in self.commands:
@@ -22,21 +29,39 @@ class App():
                 return command["function"]
             
         print("Command ({cmd}) not found.")
+	
+    def simple_net(self):
+         if self.net:
+             self.net.stop()
+
+         self.net = run(SimpleTopo())
+
+    def tower_net(self):
+        if self.net:
+             self.net.stop()
+
+        self.net = run(Tower())
+
 
     def help(self):
         for cmd in self.commands:
             print(cmd["name"])
 
     def exit_app(self):
-        self.net.stop()
+        if self.net:
+             self.net.stop()
+
         exit(0)
 
-    def start(self):
+    def ping_all(self):
         self.net.pingAll()
 
+    def create_routes(self):
+        self.router.update()
+        self.router.install_all_routes()
+
 def main():
-    net = network.run()
-    app = App(net)
+    app = App()
     app.main_loop()
 
 if __name__ == '__main__':
