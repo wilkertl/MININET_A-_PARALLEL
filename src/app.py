@@ -6,14 +6,16 @@ import re
 from multiprocessing import Pool, cpu_count
 import time
 
-def iperf_test(pair, udp=False, time_sec=5, bandwidth='10M'):
-    src, dst = pair
+def iperf_test(pair, net, udp=False, time_sec=5, bandwidth='10M'):
+    src_name, dst_name = pair
+    src = net.get(src_name)
+    dst = net.get(dst_name)
     proto = 'UDP' if udp else 'TCP'
     
     # Start iperf server on dst
     dst.cmd('killall -9 iperf')
     arg = '-u' if udp else ''
-    dst.cmd('iperf -s {arg} &')
+    dst.cmd(f'iperf -s {arg} &')
     time.sleep(1)  # Wait for server to start
 
     # Run iperf client from src
@@ -50,9 +52,10 @@ def iperf_test(pair, udp=False, time_sec=5, bandwidth='10M'):
 
     return result
 
-def ping_pair(pair):
-    """Ping from src to dst, return parsed RTT and loss."""
-    src, dst = pair
+def ping_pair(pair, net):
+    src_name, dst_name = pair
+    src = net.get(src_name)
+    dst = net.get(dst_name)
     cmd = f'ping -c 3 {dst.IP()}'
     output = src.cmd(cmd)
 
@@ -145,12 +148,11 @@ class App():
         self.router.install_all_routes()
     
     def ping_all_parallel(self):
-        """Run parallel ping between all host pairs in the Mininet network."""
-        hosts = self.net.hosts
-        pairs = [(h1, h2) for h1 in hosts for h2 in hosts if h1 != h2]
+        hosts_names = [host.name for host in self.net.hosts]
+        pairs = [(h1, h2) for h1 in hosts_names for h2 in hosts_names if h1 != h2]
 
         with Pool(processes=min(cpu_count(), len(pairs))) as pool:
-            results = pool.map(ping_pair, pairs)
+            results = pool.map(ping_pair, pairs, self.net)
 
         return results
 
@@ -158,13 +160,13 @@ class App():
         return self.run_iperf_tcp(udp=True)
 
     def run_iperf(self, udp=False):
-        hosts = self.net.hosts
-        pairs = list(permutations(hosts, 2))  # (src, dst), no self-pairs
+        hosts_names = [host.name for host in self.net.hosts]
+        pairs = list(permutations(hosts_names, 2))  # (src, dst), no self-pairs
 
         random.shuffle(pairs)
 
-        with Pool(processes=min(cpu_count(), len())) as pool:
-            results = pool.map(iperf_test, pairs, udp=udp)
+        with Pool(processes=min(cpu_count(), len(pairs))) as pool:
+            results = pool.map(iperf_test, pairs, self.net, udp=udp)
 
         return results
 
