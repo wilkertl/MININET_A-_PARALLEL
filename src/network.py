@@ -1,9 +1,8 @@
-#!/usr/bin/env python
-
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.node import RemoteController
 from mininet.log import setLogLevel
+from time import sleep
 
 CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 
@@ -45,6 +44,8 @@ def run(topo):
     setLogLevel('info')
 
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
+    net.build()
+    sleep(1)
 
     # Adiciona múltiplos controladores
     for i, ip in enumerate(CONTROLERS):
@@ -52,8 +53,8 @@ def run(topo):
         c = RemoteController(name, ip=ip, port=6653)
         net.addController(c)
 
-    net.build()
     net.start()
+    sleep(1)
 
     # Descobrindo todos os hosts
     for host in net.hosts:
