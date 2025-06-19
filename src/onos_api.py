@@ -1,10 +1,21 @@
 import requests
 from requests.auth import HTTPBasicAuth
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis do arquivo .env
+load_dotenv()
 
 class OnosApi():
-    def __init__(self, onos_ip, port):
-        self.BASE_URL = f"http://{onos_ip}:{port}/onos/v1"  # <-- Replace <onos-ip>
-        self.AUTH = HTTPBasicAuth("onos", "rocks")
+    def __init__(self, onos_ip=None, port=None, username=None, password=None):
+        # Usa valores do .env como padrão se não fornecidos
+        self.onos_ip = onos_ip or os.getenv('ONOS_IP', '192.168.1.11')
+        self.port = port or os.getenv('ONOS_PORT', '7001')
+        self.username = username or os.getenv('ONOS_USER', 'onos')
+        self.password = password or os.getenv('ONOS_PASSWORD', 'rocks')
+        
+        self.BASE_URL = f"http://{self.onos_ip}:{self.port}/onos/v1"
+        self.AUTH = HTTPBasicAuth(self.username, self.password)
         self.APP_ID = "org.onosproject.cli"  # or your own registered app name
 
     def get_hosts(self):
@@ -135,7 +146,7 @@ class OnosApi():
                     print(f"Could not delete device {dev_id}: {del_resp.status_code}")
 
 def main():
-    api = OnosApi("192.168.56.101", 7001)
+    api = OnosApi()
     #push_flow("of:000000000000000d", "00:00:00:00:00:03", "2")
     # print(api.get_topology())
     # print()

@@ -36,8 +36,3 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
-
-# Project specific
-*.png
-*.gml
-!examples/*.gml

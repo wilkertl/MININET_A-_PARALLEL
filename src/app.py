@@ -7,6 +7,7 @@ import re
 from multiprocessing.dummy import Pool
 from time import sleep
 import threading
+import os
 
 def unique_host_pairs(hosts):
     random.shuffle(hosts)
@@ -20,7 +21,7 @@ def unique_host_pairs(hosts):
 class App():
     def __init__(self):
         self.net = None
-        self.router = Router("127.0.0.1", 7001)
+        self.router = Router()
         self.api = self.router.api
         self.commands = [
             {"name": "help", "function": self.help},
@@ -30,12 +31,14 @@ class App():
             {"name": "ping_random", "function": self.ping_random},
             {"name": "ping_all", "function": self.ping_all},
             {"name": "iperf_random", "function": self.iperf_random},
-            {"name": "iperf_all", "function": self.iperf_all},
             {"name": "create_routes", "function": self.create_routes},
             {"name": "traffic", "function": self.start_dummy_traffic},
+            {"name": "gml_net", "function": self.gml_net},
+            {"name": "clean_network", "function": self.clean_network},
+            {"name": "create_routes", "function": self.create_routes}
         ]
-
         self.clean_network()
+        
 
     def main_loop(self):
         print("""Type "help" to see a list of possible commands """)
@@ -70,6 +73,11 @@ class App():
         self.clean_network()
         self.net = run(Tower())
 
+    def gml_net(self):
+        self.clean_network()
+        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
+        self.net = run(GmlTopo(gml_file=gml_file))
+
     def help(self):
         for cmd in self.commands:
             print(cmd["name"])
@@ -97,34 +105,6 @@ class App():
         h1, h2 = random.sample(self.net.hosts, 2)
         pair = (h1, h2)
         self.net.iperf(pair)
-
-    def iperf_all(self):
-        threads = []
-        results = []
-        pairs = unique_host_pairs(self.net.hosts)
-
-        def worker(pair, net, results):
-            h1, h2 = pair
-
-            print(f"Lock {h1.name} and {h2.name}")
-            #with h1.lock and h2.lock:
-            result = net.iperf(pair)
-            print(f"Free {h1.name} and {h2.name}")
-
-
-            results.append(result)
-
-        for pair in pairs:
-            args = (pair, self.net, results)
-            t = threading.Thread(target=worker, args=args)
-            t.start()
-            threads.append(t)
-
-        for t in threads:
-            t.join()
-
-        for r in results:
-            print(r)
 	
     def start_dummy_traffic(self):
         hosts = self.net.hosts[:]
