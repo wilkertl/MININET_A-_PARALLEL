@@ -174,17 +174,19 @@ def run(topo):
     setLogLevel('info')
 
     # Usa TCLink para suportar parâmetros de rede (bandwidth e delay)
-    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
+    net = Mininet(topo=topo, build=False, controller=RemoteController('c0', ip='172.17.0.5', port=6653), ipBase='10.0.0.0/8', link=TCLink)
 
     # Adiciona múltiplos controladores
-    for i, ip in enumerate(CONTROLERS):
-        name = "c{}".format(i)
-        c = RemoteController(name, ip=ip, port=6653)
-        net.addController(c)
+    #for i, ip in enumerate(CONTROLERS):
+    #    name = "c{}".format(i)
+    #    c = RemoteController(name, ip=ip, port=6653)
+    #    net.addController(c)
 
     net.build()
     net.start()
-    
+    for switch in net.switches:
+        switch.cmd('ovs-vsctl set Bridge {} protocols=OpenFlow13'.format(switch.name))
+
     sleep(10)
 
     # Descobrindo todos os hosts para o ONOS
