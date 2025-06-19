@@ -35,12 +35,12 @@ class App():
 	
     def clean_network(self):
         self.api.delete_all_flows()
-        self.api.delete_inactive_devices()
 
         if self.net:
             self.net.stop()
 
         self.net = None
+        self.api.delete_inactive_devices()
 
     def simple_net(self):
         self.clean_network()
