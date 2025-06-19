@@ -19,17 +19,17 @@ class SimpleTopo(Topo):
 class Tower( Topo ):
     def build( self ):
         spines = [
-            self.addSwitch( 's1' ),
-            self.addSwitch( 's2' )
+            self.addSwitch('s1', protocols="OpenFlow13"),
+            self.addSwitch('s2', protocols="OpenFlow13")
         ]
 
         self.addLink(spines[0], spines[1])
 
         leafs = [
-            self.addSwitch( 'l1' ),
-            self.addSwitch( 'l2' ),
-            self.addSwitch( 'l3' ),
-            self.addSwitch( 'l4' )
+            self.addSwitch('l1', protocols="OpenFlow13"),
+            self.addSwitch('l2', protocols="OpenFlow13"),
+            self.addSwitch('l3', protocols="OpenFlow13"),
+            self.addSwitch('l4', protocols="OpenFlow13")
         ]
 
         for i in range(len(leafs)):
