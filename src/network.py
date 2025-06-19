@@ -18,9 +18,7 @@ from dotenv import load_dotenv
 # Carrega variáveis do arquivo .env
 load_dotenv()
 
-# Configuração do controlador ONOS usando variáveis de ambiente
-ONOS_IP = os.getenv('ONOS_IP', '127.0.0.1')
-ONOS_OPENFLOW_PORT = int(os.getenv('ONOS_OPENFLOW_PORT', '6653'))
+CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
@@ -164,29 +162,28 @@ class GmlTopo(Topo):
             info("Link {}-{}: BW={:.1f}Mbps, Delay={:.2f}ms\n".format(
                 switch_u_name, switch_v_name, bw_mbps, delay_ms))
 
+            # Adiciona link com delay e bandwidth para simulação realística
             self.addLink(
                 switches[u], 
                 switches[v], 
-                bw=bw_mbps, 
+                bw=bw_mbps,
                 delay="{:.2f}ms".format(delay_ms)
             )
 
 def run(topo):
     setLogLevel('info')
 
-    # Configuração com controlador ONOS usando variáveis de ambiente
-    info("*** Conectando ao controlador ONOS em {}:{}\n".format(ONOS_IP, ONOS_OPENFLOW_PORT))
-    
-    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
+    # Usa TCLink para suportar parâmetros de rede (bandwidth e delay)
+    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
+
+    # Adiciona múltiplos controladores
+    for i, ip in enumerate(CONTROLERS):
+        name = "c{}".format(i)
+        c = RemoteController(name, ip=ip, port=6653)
+        net.addController(c)
+
     net.build()
-    sleep(1)
-
-    # Adiciona controlador ONOS
-    onos_controller = RemoteController('c0', ip=ONOS_IP, port=ONOS_OPENFLOW_PORT)
-    net.addController(onos_controller)
-
     net.start()
-    sleep(1)
 
     # Descobrindo todos os hosts
     for host in net.hosts:
@@ -195,7 +192,7 @@ def run(topo):
     # Exibe informações da topologia após inicialização
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
         info("*** RESUMO DA TOPOLOGIA ***\n")
-        info("Controlador ONOS: {}:{}\n".format(ONOS_IP, ONOS_OPENFLOW_PORT))
+        info("Controladores: {}\n".format(CONTROLERS))
         info("Switches de BORDA: {}\n".format([s['name'] for s in topo.edge_switches]))
         info("Switches de BACKBONE: {}\n".format([s['name'] for s in topo.backbone_switches]))
         info("Total de hosts: {}\n".format(len(net.hosts)))
