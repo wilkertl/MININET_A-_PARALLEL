@@ -5,6 +5,7 @@ class App():
     def __init__(self):
         self.net = None
         self.router = Router("127.0.0.1", 7001)
+        self.api = self.router.api
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
@@ -28,29 +29,31 @@ class App():
             if command["name"] == cmd:
                 return command["function"]
             
-        print("Command ({cmd}) not found.")
+        print(f"Command ({cmd}) not found.")
 	
-    def simple_net(self):
-         if self.net:
-             self.net.stop()
+    def clean_network(self):
+        self.api.delete_all_flows()
+        self.api.delete_inactive_devices()
 
-         self.net = run(SimpleTopo())
+        if self.net:
+            self.net.stop()
+
+        self.net = None
+
+    def simple_net(self):
+        self.clean_network()
+        self.net = run(SimpleTopo())
 
     def tower_net(self):
-        if self.net:
-             self.net.stop()
-
+        self.clean_network()
         self.net = run(Tower())
-
 
     def help(self):
         for cmd in self.commands:
             print(cmd["name"])
 
     def exit_app(self):
-        if self.net:
-             self.net.stop()
-
+        self.clean_network()
         exit(0)
 
     def ping_all(self):

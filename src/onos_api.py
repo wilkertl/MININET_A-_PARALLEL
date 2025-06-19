@@ -105,13 +105,12 @@ class OnosApi():
 
         # Delete all flows per device
         for flow in flows:
-            print(flow)
             device_id = flow['deviceId']
             flow_id = flow['id']
-            del_url = f'{self.BASE_URL}/{device_id}/{flow_id}'
+            del_url = f'{self.BASE_URL}/flows/{device_id}/{flow_id}'
             del_resp = requests.delete(del_url, auth=self.AUTH)
             if del_resp.status_code in (204, 200):
-                print(f"Deleted all flows on {device_id}")
+                print(f"Deleted flow {flow_id} on {device_id}")
             else:
                 print(f"Failed to delete flow {flow_id} on {device_id}: {del_resp.status_code}")
                 return
@@ -147,7 +146,7 @@ def main():
     # print()
     # ports = api.get_port_statistics("of:000000000000000d")["statistics"][0]["ports"]
     # print(ports[0])
-    #api.delete_all_flows()
+    api.delete_all_flows()
     api.delete_inactive_devices()
 
 if __name__ == "__main__":

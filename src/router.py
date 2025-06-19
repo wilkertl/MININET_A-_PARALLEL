@@ -66,6 +66,7 @@ class Router():
         """
         port = self.find_port(from_hop, to_hop)
         status, msg = self.api.push_flow(from_hop, final_dst, port)
+        print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
     def install_all_routes(self):
         graph = self.build_graph()
@@ -91,7 +92,7 @@ class Router():
                 if hop not in self.switches:
                     continue
 
-            self.create_flow(from_hop=hop, to_hop=next_hop, final_dst=final_dst)
+                self.create_flow(from_hop=hop, to_hop=next_hop, final_dst=final_dst)
 
 def main():
     print("Installing routing intents for all host pairs...")
