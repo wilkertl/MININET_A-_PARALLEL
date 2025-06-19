@@ -186,6 +186,7 @@ def run(topo):
         net.addController(c)
 
     net.build()
+    sleep(10)
     net.start()
     sleep(10)
 

@@ -15,7 +15,6 @@ class Router():
         self.switches = self.api.get_switches()
         self.links = self.api.get_links()
 
-
     def find_port(self, src, dst):
         """
         Returns the port that connects switch src to device dst
@@ -36,7 +35,6 @@ class Router():
                 return host['locations'][0]['port']
 
         return None
-
 
     def build_graph(self):
         G = nx.Graph()
@@ -68,11 +66,6 @@ class Router():
         status, msg = self.api.push_flow(from_hop, final_dst, port)
         print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
-
-
-    def heuristic(u, v):
-        return 0
-    
     def install_all_routes(self):
         graph = self.build_graph()
         paths = []
@@ -85,8 +78,12 @@ class Router():
                 if source == target:
                     continue
 
-                path = nx.astar_path(graph, source=source, target=target)
-                paths.append(path) 
+                try:
+                    path = nx.shortest_path(graph, source=source, target=target)
+                    paths.append(path)
+                except nx.NetworkXNoPath:
+                    print(f"Aviso: Não há caminho entre {source} e {target}")
+                    continue
 
         for path in paths:
             final_dst = path[len(path) - 1]
@@ -102,7 +99,7 @@ class Router():
 def main():
     print("Installing routing intents for all host pairs...")
     start = time.time()
-    router = Router()
+    router = Router("127.0.0.1", 7001)
     router.install_all_routes()
     total_time = time.time() - start
     print(f"Time spend to generate routs {total_time}")
