@@ -184,11 +184,35 @@ def run(topo):
 
     net.build()
     net.start()
+    
     sleep(10)
 
-    # Descobrindo todos os hosts
+    # Descobrindo todos os hosts para o ONOS
+    info("*** Forçando descoberta de hosts pelo ONOS...\n")
+    
+    # Envia tráfego ARP para forçar descoberta pelos switches
     for host in net.hosts:
-        host.cmd("ping -c1 10.0.0.1 &")
+        # Ping para gateway da rede para gerar tráfego ARP
+        host.cmd("arping -c1 -I {} {} &".format(host.defaultIntf(), "10.0.0.254"))
+        # Ping broadcast para descobrir outros hosts
+        host.cmd("ping -c1 -b 10.255.255.255 &")
+    
+    sleep(5)  # Aguarda descoberta
+    
+    # Teste de conectividade básica
+    info("*** Testando conectividade básica...\n")
+    net.pingAll()
+    
+    # Verifica se hosts foram descobertos pelo ONOS
+    try:
+        from onos_api import OnosApi
+        api = OnosApi()  # IP padrão do ONOS
+        discovered_hosts = api.get_hosts()
+        info("*** Hosts descobertos pelo ONOS: {}\n".format(len(discovered_hosts)))
+        if len(discovered_hosts) != len(net.hosts):
+            info("*** AVISO: Nem todos os hosts foram descobertos pelo ONOS!\n")
+    except Exception as e:
+        info("*** Não foi possível verificar hosts no ONOS: {}\n".format(e))
 
     # Exibe informações da topologia após inicialização
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
