@@ -13,8 +13,14 @@ from mininet.link import TCLink
 from mininet.cli import CLI
 from mininet.log import setLogLevel, info, error
 from time import sleep
+from dotenv import load_dotenv
 
-CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
+# Carrega variáveis do arquivo .env
+load_dotenv()
+
+# Configuração do controlador ONOS usando variáveis de ambiente
+ONOS_IP = os.getenv('ONOS_IP', '127.0.0.1')
+ONOS_OPENFLOW_PORT = int(os.getenv('ONOS_OPENFLOW_PORT', '6653'))
 
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
@@ -89,22 +95,26 @@ class GmlTopo(Topo):
         # Primeiro, adicione todos os switches
         for node_id, node_data in G.nodes(data=True):
             switch_name = str(node_id)
-            switches[node_id] = self.addSwitch(switch_name, protocols='OpenFlow13')
+            switch_ref = self.addSwitch(switch_name, protocols='OpenFlow13')
+            switches[node_id] = switch_ref
 
         # Classifica switches como edge ou backbone baseado no grau (número de conexões)
         info("*** Classificando switches...\n")
-        for node_id, switch_obj in switches.items():
+        for node_id, switch_ref in switches.items():
             switch_degree = G.degree(node_id)
+            # switch_ref é uma string (nome do switch), não um objeto
+            switch_name = switch_ref if isinstance(switch_ref, str) else str(switch_ref)
+            
             if switch_degree <= EDGE_SWITCH_DEGREE_THRESHOLD:
                 self.edge_switches.append({
                     'id': node_id,
-                    'name': switch_obj.name,
+                    'name': switch_name,
                     'degree': switch_degree
                 })
             else:
                 self.backbone_switches.append({
                     'id': node_id,
-                    'name': switch_obj.name,
+                    'name': switch_name,
                     'degree': switch_degree
                 })
 
@@ -146,8 +156,13 @@ class GmlTopo(Topo):
 
             # Usar distribuição uniforme para banda entre switches
             bw_mbps = random.uniform(MIN_BACKBONE_BW_MBPS, MAX_BACKBONE_BW_MBPS)
+            
+            # Obter nomes dos switches para logging
+            switch_u_name = switches[u] if isinstance(switches[u], str) else str(switches[u])
+            switch_v_name = switches[v] if isinstance(switches[v], str) else str(switches[v])
+            
             info("Link {}-{}: BW={:.1f}Mbps, Delay={:.2f}ms\n".format(
-                switches[u].name, switches[v].name, bw_mbps, delay_ms))
+                switch_u_name, switch_v_name, bw_mbps, delay_ms))
 
             self.addLink(
                 switches[u], 
@@ -159,16 +174,16 @@ class GmlTopo(Topo):
 def run(topo):
     setLogLevel('info')
 
-    # Configuração original com múltiplos controladores
+    # Configuração com controlador ONOS usando variáveis de ambiente
+    info("*** Conectando ao controlador ONOS em {}:{}\n".format(ONOS_IP, ONOS_OPENFLOW_PORT))
+    
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
     net.build()
     sleep(1)
 
-    # Adiciona múltiplos controladores
-    for i, ip in enumerate(CONTROLERS):
-        name = "c{}".format(i)
-        c = RemoteController(name, ip=ip, port=6653)
-        net.addController(c)
+    # Adiciona controlador ONOS
+    onos_controller = RemoteController('c0', ip=ONOS_IP, port=ONOS_OPENFLOW_PORT)
+    net.addController(onos_controller)
 
     net.start()
     sleep(1)
@@ -180,6 +195,7 @@ def run(topo):
     # Exibe informações da topologia após inicialização
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
         info("*** RESUMO DA TOPOLOGIA ***\n")
+        info("Controlador ONOS: {}:{}\n".format(ONOS_IP, ONOS_OPENFLOW_PORT))
         info("Switches de BORDA: {}\n".format([s['name'] for s in topo.edge_switches]))
         info("Switches de BACKBONE: {}\n".format([s['name'] for s in topo.backbone_switches]))
         info("Total de hosts: {}\n".format(len(net.hosts)))
