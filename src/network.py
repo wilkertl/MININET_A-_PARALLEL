@@ -111,24 +111,24 @@ def run(topo):
     setLogLevel('info')
 
     # Configuração original com múltiplos controladores
-        net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
-        net.build()
-        sleep(1)
+    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8')
+    net.build()
+    sleep(1)
 
-        # Adiciona múltiplos controladores
-        for i, ip in enumerate(CONTROLERS):
-            name = f"c{i}"
-            c = RemoteController(name, ip=ip, port=6653)
-            net.addController(c)
+    # Adiciona múltiplos controladores
+    for i, ip in enumerate(CONTROLERS):
+        name = f"c{i}"
+        c = RemoteController(name, ip=ip, port=6653)
+        net.addController(c)
 
-        net.start()
-        sleep(1)
+    net.start()
+    sleep(1)
 
-        # Descobrindo todos os hosts
-        for host in net.hosts:
-            host.cmd("ping -c1 10.0.0.1 &")
+    # Descobrindo todos os hosts
+    for host in net.hosts:
+        host.cmd("ping -c1 10.0.0.1 &")
 
-    return net    
+    return net
 
 if __name__ == '__main__':
     # Exemplo de uso
@@ -142,5 +142,5 @@ if __name__ == '__main__':
     
     # Para usar arquivo GML:
     LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
-    net = run(GmlTopo(gml_file=gml_file))
+    net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
 
