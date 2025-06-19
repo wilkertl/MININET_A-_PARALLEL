@@ -21,18 +21,25 @@ class Tower( Topo ):
         spines = [
             self.addSwitch( 's1' ),
             self.addSwitch( 's2' )
-       ]
+        ]
 
-        # Now create the leaf switches, their hosts and connect them together
-        for i in range(4):
-            sn = i + 1
-            leaf = self.addSwitch(f's1{sn}')
-            for spine in spines:
-                self.addLink(leaf, spine)
+        self.addLink(spines[0], spines[1])
 
-            for j in range(5):
-                host = self.addHost(f'h{sn}{j+1}')
-                self.addLink( host, leaf )
+        leafs = [
+            self.addSwitch( 'l1' ),
+            self.addSwitch( 'l2' ),
+            self.addSwitch( 'l3' ),
+            self.addSwitch( 'l4' )
+        ]
+
+        for i in range(len(leafs)):
+            leaf = leafs[i]
+            self.addLink(leaf, spines[0])
+            self.addLink(leaf, spines[1])
+
+            for j in range(1, 6):
+                host = self.addHost(f'h{j + i*5}')
+                self.addLink(host, leaf)
 
 def run(topo):
     setLogLevel('info')
