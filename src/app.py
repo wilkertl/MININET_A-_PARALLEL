@@ -156,7 +156,7 @@ class App():
         return results
 
     def run_iperf_udp(self):
-        return self.run_iperf_tcp(udp=True)
+        return self.run_iperf(udp=True)
 
     def run_iperf(self, udp=False):
         hosts_names = [host.name for host in self.net.hosts]
