@@ -1,5 +1,81 @@
+from itertools import permutations
+import random
 from network import *
 from router import Router
+import re
+from multiprocessing import Pool, cpu_count
+import time
+
+def iperf_test(pair, udp=False, time_sec=5, bandwidth='10M'):
+    src, dst = pair
+    proto = 'UDP' if udp else 'TCP'
+    
+    # Start iperf server on dst
+    dst.cmd('killall -9 iperf')
+    arg = '-u' if udp else ''
+    dst.cmd('iperf -s {arg} &')
+    time.sleep(1)  # Wait for server to start
+
+    # Run iperf client from src
+    cmd = f'iperf -c {dst.IP()} -t {time_sec}'
+    if udp:
+        cmd += f' -u -b {bandwidth}'
+
+    output = src.cmd(cmd)
+    dst.cmd('killall -9 iperf')  # Stop server
+
+    result = {
+        'src': src.name,
+        'dst': dst.name,
+        'protocol': proto,
+        'bandwidth': None,
+        'jitter': None,
+        'loss': None
+    }
+
+    # Parse output
+    if udp:
+        match = re.search(r'([\d.]+)\s+Mbits/sec\s+([\d.]+)\s+ms\s+(\d+)/(\d+)', output)
+        if match:
+            bw, jitter, lost, total = match.groups()
+            result.update({
+                'bandwidth': float(bw),
+                'jitter': float(jitter),
+                'loss': 100 * int(lost) / int(total)
+            })
+    else:
+        match = re.search(r'([\d.]+)\s+Mbits/sec', output)
+        if match:
+            result['bandwidth'] = float(match.group(1))
+
+    return result
+
+def ping_pair(pair):
+    """Ping from src to dst, return parsed RTT and loss."""
+    src, dst = pair
+    cmd = f'ping -c 3 {dst.IP()}'
+    output = src.cmd(cmd)
+
+    # Packet loss
+    loss_match = re.search(r'(\d+)% packet loss', output)
+    loss = int(loss_match.group(1)) if loss_match else None
+
+    # RTT
+    rtt_match = re.search(r'rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)', output)
+    if rtt_match:
+        rtt_min, rtt_avg, rtt_max, rtt_mdev = map(float, rtt_match.groups())
+    else:
+        rtt_min = rtt_avg = rtt_max = rtt_mdev = None
+
+    return {
+        'src': src.name,
+        'dst': dst.name,
+        'loss': loss,
+        'rtt_min': rtt_min,
+        'rtt_avg': rtt_avg,
+        'rtt_max': rtt_max,
+        'rtt_mdev': rtt_mdev
+    }
 
 class App():
     def __init__(self):
@@ -12,7 +88,10 @@ class App():
             {"name": "ping_all", "function": self.ping_all},
 	        {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
-            {"name": "create_routes", "function": self.create_routes}
+            {"name": "create_routes", "function": self.create_routes},
+            {"name": "ping", "function": self.ping_all_parallel},
+            {"name": "iperf_tcp", "function": self.run_iperf},
+            {"name": "iperf_udp", "function": self.run_iperf_udp}
         ]
 
         self.clean_network()
@@ -64,6 +143,31 @@ class App():
     def create_routes(self):
         self.router.update()
         self.router.install_all_routes()
+    
+    def ping_all_parallel(self):
+        """Run parallel ping between all host pairs in the Mininet network."""
+        hosts = self.net.hosts
+        pairs = [(h1, h2) for h1 in hosts for h2 in hosts if h1 != h2]
+
+        with Pool(processes=min(cpu_count(), len(pairs))) as pool:
+            results = pool.map(ping_pair, pairs)
+
+        return results
+
+    def run_iperf_udp(self):
+        return self.run_iperf_tcp(udp=True)
+
+    def run_iperf(self, udp=False):
+        hosts = self.net.hosts
+        pairs = list(permutations(hosts, 2))  # (src, dst), no self-pairs
+
+        random.shuffle(pairs)
+
+        with Pool(processes=min(cpu_count(), len())) as pool:
+            results = pool.map(iperf_test, pairs, udp=udp)
+
+        return results
+
 
 def main():
     app = App()
