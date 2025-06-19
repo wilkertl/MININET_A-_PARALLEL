@@ -2,7 +2,7 @@
 
 Este projeto contém um script Python para emular topologias de rede complexas no Mininet, lendo a estrutura de um arquivo `.gml` local. O principal objetivo é conectar esta rede emulada a um controlador ONOS para visualização e gerenciamento centralizado.
 
-O script foi desenvolvido e adaptado para funcionar em um ambiente de máquina virtual (VM) ONOS mais antigo, que possui um ecossistema baseado em **Python 2**.
+O script foi desenvolvido e adaptado para funcionar em um ambiente moderno baseado em **Python 3**.
 
 ## Arquitetura da Solução
 
@@ -16,19 +16,33 @@ O script foi desenvolvido e adaptado para funcionar em um ambiente de máquina v
 
 ## Pré-requisitos de Ambiente
 
-**ATENÇÃO:** Este projeto foi configurado para um ambiente muito específico.
+**ATENÇÃO:** Este projeto requer Python 3 e um ambiente moderno.
 
-* **Máquina Virtual:** Desenvolvido em uma VM ONOS (baseada em Ubuntu 16.04 ou similar).
-* **ONOS:** Uma instância do ONOS deve estar rodando na VM.
-* **Interpretador Python:** **Python 2.7**. O script é incompatível com Python 3 devido às dependências do Mininet neste ambiente.
-* **Mininet:** Uma versão compatível com Python 2, geralmente localizada em `/home/sdn/mininet`.
-* **PIP:** O gerenciador de pacotes `pip` para Python 2.
+* **Sistema Operacional:** Ubuntu 18.04+ ou similar
+* **ONOS:** Uma instância do ONOS deve estar rodando na máquina.
+* **Interpretador Python:** **Python 3.8+**. O script é otimizado para Python 3.
+* **Mininet:** Uma versão compatível com Python 3.
+* **PIP:** O gerenciador de pacotes `pip` para Python 3.
 
 ## 1. Configuração do Ambiente
 
-Siga estes passos para preparar a sua VM.
+Siga estes passos para preparar o seu ambiente.
 
-### 1.1 Preparando o Mininet
+### 1.1 Configuração Rápida
+
+Execute o script de setup automatizado:
+
+```bash
+# Clone o repositório
+git clone <url-do-seu-repositorio>
+cd <nome-do-seu-repositorio>
+
+# Execute o setup
+chmod +x setup_python3.sh
+./setup_python3.sh
+```
+
+### 1.2 Configuração Manual
 
 1.  **Clone o repositório:**
     ```bash
@@ -36,20 +50,18 @@ Siga estes passos para preparar a sua VM.
     cd <nome-do-seu-repositorio>
     ```
 
-2.  **Verifique e Repare o `pip` (Recomendado):**
-    Para evitar problemas de instalação, é recomendado reinstalar o `pip` para Python 2:
+2.  **Crie um ambiente virtual:**
     ```bash
-    sudo apt-get update
-    sudo apt-get install --reinstall python-pip
+    python3 -m venv .venv
+    source .venv/bin/activate
     ```
 
 3.  **Instale as dependências Python:**
-    Use o arquivo `requirements.txt` para instalar a versão exata do NetworkX compatível com Python 2:
     ```bash
-    sudo pip install -r requirements.txt
+    pip install -r requirements.txt
     ```
 
-### 1.2 Preparando o ONOS
+### 1.3 Preparando o ONOS
 
 1.  **Acesse a GUI do ONOS:** Em seu computador principal, abra um navegador e acesse `http://<IP_DA_SUA_VM>:8181/onos/ui`. Faça login com `onos` / `rocks`.
 
@@ -72,26 +84,26 @@ Siga estes passos para preparar a sua VM.
 ## 2. Configuração do Script
 
 1.  **Adicione seu Arquivo GML:**
-    Coloque seu arquivo de topologia (ex: `polska.gml`) dentro da pasta `src/`.
+    Coloque seu arquivo de topologia (ex: `tata_nld.gml`) dentro da pasta `src/`.
 
-2.  **Edite o Script:**
-    Abra o arquivo `src/run_tata_mininet.py` e altere a variável `LOCAL_GML_FILE` para corresponder ao nome do seu arquivo:
+2.  **Edite o Script (se necessário):**
+    O script já está configurado para usar `tata_nld.gml`. Se quiser usar outro arquivo, edite a variável `LOCAL_GML_FILE` em `src/run_tata_mininet.py`:
     ```python
     # Altere esta linha para o nome do seu arquivo
-    LOCAL_GML_FILE = 'polska.gml' 
+    LOCAL_GML_FILE = 'seu_arquivo.gml' 
     ```
 
 ## 3. Execução e Visualização
 
-1.  **Navegue até o diretório do script:**
+1.  **Ative o ambiente virtual (se usando):**
     ```bash
-    cd src
+    source .venv/bin/activate
     ```
 
 2.  **Execute o script principal:**
-    Use `sudo` e o interpretador `python` (não `python3`).
+    Use `sudo` e o interpretador `python3`.
     ```bash
-    sudo python run_tata_mininet.py
+    sudo python3 src/run_tata_mininet.py
     ```
     O script irá iniciar o Mininet, e os switches se conectarão ao ONOS.
 
@@ -103,6 +115,21 @@ Siga estes passos para preparar a sua VM.
 
 ## Notas Técnicas Importantes
 
-* **Python 2 vs. 3:** A escolha pelo Python 2 é uma restrição imposta pela versão do Mininet presente na VM.
-* **`sudo` e `PYTHONPATH`:** O script adiciona `sys.path.append('/home/sdn/mininet')` para contornar um problema onde `sudo` não consegue localizar a biblioteca Mininet.
-* **Conexão ONOS:** O script está configurado para se conectar ao ONOS em `127.0.0.1:6653`. Este endereço funciona pois o Mininet e o ONOS estão na mesma VM.
+* **Python 3:** O script foi atualizado para usar Python 3 com todas as suas funcionalidades modernas.
+* **Ambiente Virtual:** Recomendamos usar um ambiente virtual para isolar as dependências.
+* **Conexão ONOS:** O script está configurado para se conectar ao ONOS em `127.0.0.1:6653`.
+* **Compatibilidade:** O script usa `.format()` em vez de f-strings para máxima compatibilidade.
+
+## Solução de Problemas
+
+### Erro de NumPy/NetworkX
+Se você encontrar erros relacionados ao NumPy 2.0, execute:
+```bash
+pip install "numpy<2.0" --break-system-packages
+```
+
+### Erro de Permissão
+Certifique-se de executar o script com `sudo`:
+```bash
+sudo python3 src/run_tata_mininet.py
+```

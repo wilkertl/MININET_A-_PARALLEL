@@ -1,4 +1,5 @@
-networkx==2.4
-matplotlib
-numpy
-mininet 
+# Python 3 compatible dependencies
+networkx>=2.8.0
+matplotlib>=3.5.0
+numpy>=1.21.0,<2.0
+mininet>=2.3.0 
