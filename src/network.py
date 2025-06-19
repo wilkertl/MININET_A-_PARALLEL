@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 # Carrega variáveis do arquivo .env
 load_dotenv()
 
+# Para resultados reproduzíveis, descomente a linha abaixo:
+random.seed(42)  # Use qualquer número inteiro
+
 CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
 
 # Configurações para topologia GML
