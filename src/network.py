@@ -29,14 +29,53 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
+def add_bandwidth_to_gml(gml_file):
+    """Adiciona valores de bandwidth aleatórios ao arquivo GML se não existirem."""
+    info("*** Verificando/adicionando bandwidth ao arquivo GML...\n")
+    
+    # Lê o grafo
+    G = None
+    try:
+        G = nx.read_gml(gml_file, label='id')
+    except Exception:
+        G = nx.read_gml(gml_file, label='label')
+    
+    # Verifica se já tem bandwidth
+    has_bw = False
+    for u, v, edge_data in G.edges(data=True):
+        if 'bw' in edge_data:
+            has_bw = True
+            break
+    
+    if not has_bw:
+        info("*** Gerando valores de bandwidth aleatórios...\n")
+        # Adiciona bandwidth aleatório para cada edge
+        for u, v, edge_data in G.edges(data=True):
+            bw_mbps = random.uniform(100.0, MAX_BACKBONE_BW_GBPS * 1000)
+            G[u][v]['bw'] = round(bw_mbps, 2)
+        
+        # Salva o arquivo atualizado
+        nx.write_gml(G, gml_file)
+        info("*** Arquivo GML atualizado com valores de bandwidth!\n")
+    else:
+        info("*** Arquivo GML já possui valores de bandwidth.\n")
+    
+    return G
+
 class SimpleTopo(Topo):
     def build(self):
         h1 = self.addHost('h1')
         h2 = self.addHost('h2')
         s1 = self.addSwitch('s1', protocols='OpenFlow13')
 
-        self.addLink(h1, s1)
-        self.addLink(h2, s1)
+        bw_h1 = random.uniform(10.0, 100.0)  # 10-100 Mbps para hosts
+        delay_h1 = random.uniform(0.1, 2.0)  # 0.1-2ms de delay
+        
+        bw_h2 = random.uniform(10.0, 100.0)
+        delay_h2 = random.uniform(0.1, 2.0)
+
+        self.addLink(h1, s1, bw=bw_h1, delay=f"{delay_h1:.2f}ms")
+        self.addLink(h2, s1, bw=bw_h2, delay=f"{delay_h2:.2f}ms")
 
 class Tower(Topo):
     def build(self):
@@ -45,7 +84,9 @@ class Tower(Topo):
             self.addSwitch('s2', protocols="OpenFlow13")
         ]
 
-        self.addLink(spines[0], spines[1])
+        spine_bw = random.uniform(1000.0, 10000.0)  # 1-10 Gbps
+        spine_delay = random.uniform(0.1, 0.5)  # 0.1-0.5ms
+        self.addLink(spines[0], spines[1], bw=spine_bw, delay=f"{spine_delay:.2f}ms")
 
         leafs = [
             self.addSwitch('l1', protocols="OpenFlow13"),
@@ -56,12 +97,21 @@ class Tower(Topo):
 
         for i in range(len(leafs)):
             leaf = leafs[i]
-            self.addLink(leaf, spines[0])
-            self.addLink(leaf, spines[1])
+            
+            leaf_spine_bw1 = random.uniform(100.0, 1000.0)  # 100Mbps-1Gbps
+            leaf_spine_delay1 = random.uniform(0.2, 1.0)  # 0.2-1ms
+            
+            leaf_spine_bw2 = random.uniform(100.0, 1000.0)
+            leaf_spine_delay2 = random.uniform(0.2, 1.0)
+            
+            self.addLink(leaf, spines[0], bw=leaf_spine_bw1, delay=f"{leaf_spine_delay1:.2f}ms")
+            self.addLink(leaf, spines[1], bw=leaf_spine_bw2, delay=f"{leaf_spine_delay2:.2f}ms")
 
             for j in range(1, 6):
                 host = self.addHost(f'h{j + i*5}')
-                self.addLink(host, leaf)
+                host_bw = random.uniform(10.0, 100.0)  # 10-100 Mbps para hosts
+                host_delay = random.uniform(0.1, 2.0)  # 0.1-2ms
+                self.addLink(host, leaf, bw=host_bw, delay=f"{host_delay:.2f}ms")
 
 class GmlTopo(Topo):
     """
@@ -70,11 +120,9 @@ class GmlTopo(Topo):
     """
     def build(self, gml_file):
         info("*** Lendo topologia do arquivo: {}\n".format(gml_file))
-        G = None
-        try:
-            G = nx.read_gml(gml_file, label='id')
-        except Exception:
-            G = nx.read_gml(gml_file, label='label')
+        
+        # Adiciona bandwidth ao arquivo se não existir
+        G = add_bandwidth_to_gml(gml_file)
 
         info("*** Adicionando switches e hosts...\n")
         switches = {}
@@ -87,18 +135,17 @@ class GmlTopo(Topo):
             self.addLink(host, switches[node_id], bw=100)
 
         info("*** Adicionando links entre switches com parametros de rede...\n")
-        for u, v in G.edges():
-            node1_data = G.nodes[u]
-            node2_data = G.nodes[v]
-            
+        for u, v, edge_data in G.edges(data=True):
             try:
-                dist_km = haversine_distance(node1_data['lat'], node1_data['lon'],
-                                             node2_data['lat'], node2_data['lon'])
+                dist_km = edge_data['dist']
                 delay_ms = dist_km / PROPAGATION_SPEED_KM_PER_MS
             except KeyError:
                 delay_ms = 1.0
 
-            bw_mbps = random.uniform(100.0, MAX_BACKBONE_BW_GBPS * 1000)
+            try:
+                bw_mbps = edge_data['bw']
+            except KeyError:
+                bw_mbps = random.uniform(100.0, MAX_BACKBONE_BW_GBPS * 1000)
 
             self.addLink(
                 switches[u], 

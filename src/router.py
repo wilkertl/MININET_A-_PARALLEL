@@ -44,14 +44,28 @@ class Router():
         for switch in self.switches:
             G.add_node(switch)
 
-        # Add host edges
+        # Add host edges with weight = 1 (default)
         for host in self.hosts:
             switch = host['locations'][0]['elementId']
-            G.add_node(host['mac'])                     # add host node (e.g., MAC)
-            G.add_edge(host['mac'], switch)
+            G.add_node(host['mac'])
+            G.add_edge(host['mac'], switch, weight=1.0)
 
+        # Add switch-to-switch edges with weight based on distance/delay if available
         for link in self.links:
-            G.add_edge(link['src']['device'], link['dst']['device'])
+            src_device = link['src']['device']
+            dst_device = link['dst']['device']
+            
+            # Tenta extrair informações de distância dos anotações do link
+            weight = 1.0  # peso padrão
+            
+            # Se houver anotações com distância, usa como peso
+            if 'annotations' in link and 'distance' in link['annotations']:
+                try:
+                    weight = float(link['annotations']['distance'])
+                except (ValueError, TypeError):
+                    weight = 1.0
+            
+            G.add_edge(src_device, dst_device, weight=weight)
 
         return G
 
@@ -70,8 +84,47 @@ class Router():
 
 
 
-    def heuristic(u, v):
-        return 0
+    def heuristic(self, u, v):
+        """
+        Heurística para A*: usa distância real quando disponível no grafo,
+        senão usa estimativa baseada na topologia da rede
+        """
+        # Se ambos são hosts (MAC addresses), distância mínima é 2 (host->switch->host)
+        if ':' in u and len(u) == 17 and ':' in v and len(v) == 17:
+            return 2.0 if u != v else 0.0
+        
+        # Se um é host e outro é switch, distância mínima é 1
+        if ((':' in u and len(u) == 17) and ('of:' in v)) or (('of:' in u) and (':' in v and len(v) == 17)):
+            return 1.0
+        
+        # Para switches, tenta usar distância real do grafo se disponível
+        if 'of:' in u and 'of:' in v:
+            # Verifica se temos o grafo construído para consultar distâncias
+            if hasattr(self, '_graph_cache'):
+                try:
+                    # Tenta encontrar distância direta no grafo
+                    if self._graph_cache.has_edge(u, v):
+                        return self._graph_cache[u][v].get('weight', 1.0) * 0.8  # 80% da distância real como heurística
+                    
+                    # Se não há conexão direta, usa estimativa baseada em vizinhos comuns
+                    u_neighbors = set(self._graph_cache.neighbors(u)) if self._graph_cache.has_node(u) else set()
+                    v_neighbors = set(self._graph_cache.neighbors(v)) if self._graph_cache.has_node(v) else set()
+                    
+                    if u_neighbors & v_neighbors:  # Se têm vizinhos em comum
+                        return 2.0  # Distância de 2 saltos
+                    
+                except:
+                    pass
+            
+            # Fallback: estimativa baseada no ID do switch
+            try:
+                u_id = int(u.split(':')[-1], 16) % 100
+                v_id = int(v.split(':')[-1], 16) % 100
+                return float(abs(u_id - v_id))
+            except:
+                return 1.0
+        
+        return 1.0
     
     def install_all_routes(self):
         graph = self.build_graph()
@@ -85,7 +138,7 @@ class Router():
                 if source == target:
                     continue
 
-                path = nx.astar_path(graph, source=source, target=target)
+                path = nx.astar_path(graph, source=source, target=target, heuristic=self.heuristic)
                 paths.append(path) 
 
         for path in paths:
@@ -103,8 +156,11 @@ def main():
     print("Installing routing intents for all host pairs...")
     start = time.time()
     router = Router()
-    router.install_all_routes()
-    total_time = time.time() - start
+    print(router.hosts)
+    print(router.switches)
+    print(router.links)
+    #router.install_all_routes()
+    #total_time = time.time() - start
     print(f"Time spend to generate routs {total_time}")
     print("Done.")
 
