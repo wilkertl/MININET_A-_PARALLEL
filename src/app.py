@@ -12,6 +12,7 @@ class App():
             {"name": "ping_all", "function": self.ping_all},
 	        {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
+            {"name": "gml_net", "function": self.gml_net},
             {"name": "create_routes", "function": self.create_routes}
         ]
 
@@ -49,6 +50,11 @@ class App():
     def tower_net(self):
         self.clean_network()
         self.net = run(Tower())
+
+    def gml_net(self):
+        self.clean_network()
+        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
+        self.net = run(GmlTopo(gml_file=gml_file))
 
     def help(self):
         for cmd in self.commands:
