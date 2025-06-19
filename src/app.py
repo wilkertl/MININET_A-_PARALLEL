@@ -15,6 +15,8 @@ class App():
             {"name": "create_routes", "function": self.create_routes}
         ]
 
+        self.clean_network()
+
     def main_loop(self):
         print("""Type "help" to see a list of possible commands """)
         while True:
