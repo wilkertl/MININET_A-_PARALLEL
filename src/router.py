@@ -3,7 +3,7 @@ from onos_api import OnosApi
 import time
 
 class Router():
-    def __init__(self, onos_ip, port):
+    def __init__(self, onos_ip=None, port=None):
         self.hosts = None
         self.switches = None
         self.links = None
@@ -68,6 +68,11 @@ class Router():
         status, msg = self.api.push_flow(from_hop, final_dst, port)
         print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
+
+
+    def heuristic(u, v):
+    return 0
+    
     def install_all_routes(self):
         graph = self.build_graph()
         paths = []
@@ -80,7 +85,7 @@ class Router():
                 if source == target:
                     continue
 
-                path = nx.shortest_path(graph, source=source, target=target)
+                path = nx.astar_path(graph, source=source, target=target)
                 paths.append(path) 
 
         for path in paths:
@@ -97,7 +102,7 @@ class Router():
 def main():
     print("Installing routing intents for all host pairs...")
     start = time.time()
-    router = Router("192.168.56.101", 7001)
+    router = Router()
     router.install_all_routes()
     total_time = time.time() - start
     print(f"Time spend to generate routs {total_time}")
