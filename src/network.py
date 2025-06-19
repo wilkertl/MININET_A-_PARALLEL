@@ -199,10 +199,6 @@ def run(topo):
     
     sleep(5)  # Aguarda descoberta
     
-    # Teste de conectividade básica
-    info("*** Testando conectividade básica...\n")
-    net.pingAll()
-    
     # Verifica se hosts foram descobertos pelo ONOS
     try:
         from onos_api import OnosApi
