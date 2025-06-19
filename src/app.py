@@ -14,12 +14,6 @@ def iperf_test(pair, net, udp=False, time_sec=5, bandwidth='10M'):
     src = net.get(src_name)
     dst = net.get(dst_name)
     proto = 'UDP' if udp else 'TCP'
-    
-    # Start iperf server on dst
-    dst.cmd('killall -9 iperf')
-    arg = '-u' if udp else ''
-    dst.cmd(f'iperf -s {arg} &')
-    time.sleep(1)  # Wait for server to start
 
     # Run iperf client from src
     cmd = f'iperf -c {dst.IP()} -t {time_sec}'
@@ -27,7 +21,6 @@ def iperf_test(pair, net, udp=False, time_sec=5, bandwidth='10M'):
         cmd += f' -u -b {bandwidth}'
 
     output = src.cmd(cmd)
-    dst.cmd('killall -9 iperf')  # Stop server
 
     result = {
         'src': src.name,
@@ -169,11 +162,22 @@ class App():
         hosts_names = [host.name for host in self.net.hosts]
         pairs = list(permutations(hosts_names, 2))  # (src, dst), no self-pairs
 
+        # Start iperf server on dst
+        for host in self.net.hosts:
+            host.cmd('killall -9 iperf')
+            arg = '-u' if udp else ''
+            host.cmd(f'iperf -s {arg} &')
+
+        time.sleep(1)  # Wait for server to start
         random.shuffle(pairs)
         f = partial(iperf_test, net=self.net, udp=udp)
 
         with Pool(processes=min(cpu_count, len(pairs))) as pool:
             results = pool.map(f, pairs)
+
+        # Stop iperf server
+        for host in self.net.hosts:
+            host.cmd('killall -9 iperf')
 
         print(results)
         return results
