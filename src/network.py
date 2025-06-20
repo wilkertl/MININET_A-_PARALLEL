@@ -32,6 +32,10 @@ MIN_HOSTS_PER_EDGE_SWITCH = 1
 MAX_HOSTS_PER_EDGE_SWITCH = 7
 EDGE_SWITCH_DEGREE_THRESHOLD = 2  # Switches com grau <= 2 são considerados de borda
 
+def make_dpid(index):
+    """Gera um DPID formatado com 16 dígitos hexadecimais"""
+    return format(index, '016x')
+
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calcula a distancia geodesica em km."""
     R = 6371
@@ -45,7 +49,7 @@ class SimpleTopo(Topo):
     def build(self):
         h1 = self.addHost('h1')
         h2 = self.addHost('h2')
-        s1 = self.addSwitch('s1', protocols='OpenFlow13')
+        s1 = self.addSwitch('s1', dpid=make_dpid(1), protocols='OpenFlow13')
 
         self.addLink(h1, s1)
         self.addLink(h2, s1)
@@ -53,26 +57,23 @@ class SimpleTopo(Topo):
 class Tower(Topo):
     def build(self):
         spines = [
-            self.addSwitch('s1', protocols="OpenFlow13"),
-            self.addSwitch('s2', protocols="OpenFlow13")
+            self.addSwitch('s1', dpid=make_dpid(1), protocols="OpenFlow13"),
+            self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
         ]
 
         self.addLink(spines[0], spines[1])
 
-        leafs = [
-            self.addSwitch('l1', protocols="OpenFlow13"),
-            self.addSwitch('l2', protocols="OpenFlow13"),
-            self.addSwitch('l3', protocols="OpenFlow13"),
-            self.addSwitch('l4', protocols="OpenFlow13")
-        ]
+        leafs = []
+        for i in range(4):
+            leaf = self.addSwitch(f'l{i+1}', dpid=make_dpid(10 + i), protocols="OpenFlow13")
+            leafs.append(leaf)
 
-        for i in range(len(leafs)):
-            leaf = leafs[i]
+        for i, leaf in enumerate(leafs):
             self.addLink(leaf, spines[0])
             self.addLink(leaf, spines[1])
 
             for j in range(1, 6):
-                host = self.addHost('h{}'.format(j + i*5))
+                host = self.addHost(f'h{j + i * 5}')
                 self.addLink(host, leaf)
 
 class GmlTopo(Topo):
@@ -94,9 +95,10 @@ class GmlTopo(Topo):
         self.backbone_switches = []
         
         # Primeiro, adicione todos os switches
-        for node_id, node_data in G.nodes(data=True):
+        for idx, (node_id, node_data) in enumerate(G.nodes(data=True)):
             switch_name = str(node_id)
-            switch_ref = self.addSwitch(switch_name, protocols='OpenFlow13')
+            dpid = make_dpid(idx + 1)
+            switch_ref = self.addSwitch(switch_name, dpid=dpid, protocols='OpenFlow13')
             switches[node_id] = switch_ref
 
         # Classifica switches como edge ou backbone baseado no grau (número de conexões)
@@ -186,7 +188,6 @@ def run(topo):
         net.addController(c)
 
     net.build()
-    sleep(10)
     net.start()
     sleep(10)
 
