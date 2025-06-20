@@ -169,10 +169,12 @@ class GmlTopo(Topo):
 
             # Adiciona link com delay e bandwidth para simulação realística
             self.addLink(
-                switches[u], 
-                switches[v], 
+                switches[u],
+                switches[v],
                 bw=bw_mbps,
-                delay="{:.2f}ms".format(delay_ms)
+                delay="{:.2f}ms".format(delay_ms),
+                use_htb=True,
+                r2q=10  # ou até 5, se ainda houver warning
             )
 
 def run(topo):
