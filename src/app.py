@@ -53,7 +53,7 @@ class App():
 
     def gml_net(self):
         self.clean_network()
-        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
+        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
         self.net = run(GmlTopo(gml_file=gml_file))
 
     def help(self):
@@ -68,6 +68,9 @@ class App():
         self.net.pingAll()
 
     def create_routes(self):
+        print("Limpando flows existentes...")
+        self.api.delete_all_flows()
+        print("Criando rotas completas...")
         self.router.update()
         self.router.install_all_routes()
 
