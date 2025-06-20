@@ -64,6 +64,9 @@ class Router():
         """
         port = self.find_port(from_hop, to_hop)
         status, msg = self.api.push_flow(from_hop, final_dst, port)
+
+        if status != 201:
+            raise Exeption(msg)
         #print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
     def install_all_routes(self):
@@ -87,6 +90,7 @@ class Router():
 
         for path in paths:
             final_dst = path[len(path) - 1]
+            print(f"Creating path from {path[0]} to {final_dst}")
             for i in range(len(path) - 1):
                 hop = path[i]
                 next_hop = path[i+1]

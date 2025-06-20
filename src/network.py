@@ -179,7 +179,7 @@ def run(topo):
     #sleep(10)
     net.start()
 
-    #sleep(10)
+    sleep(10)
 
     # Descobrindo todos os hosts
     for host in net.hosts:

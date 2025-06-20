@@ -71,9 +71,13 @@ class OnosApi():
             },
             "selector": {
                 "criteria": [{
-                            "type": "ETH_DST",
-                            "mac": eth_dst
-                }]
+                        "type": "ETH_DST",
+                        "mac": eth_dst
+                    }, {
+                        "type": "ETH_TYPE",
+                        "ethType": "0x0800"   # Match only IPv4 traffic
+                    },
+                ]
             }
         }
 
@@ -124,7 +128,6 @@ class OnosApi():
                 print(f"Deleted flow {flow_id} on {device_id}")
             else:
                 print(f"Failed to delete flow {flow_id} on {device_id}: {del_resp.status_code}")
-                return
 
         print("Flow deletion complete.")
 

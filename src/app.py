@@ -88,7 +88,7 @@ class App():
 
     def create_routes(self):
         print("Limpando flows existentes...")
-        self.api.delete_all_flows()
+        #self.api.delete_all_flows()
         print("Criando rotas completas...")
         self.router.update()
         self.router.install_all_routes()
