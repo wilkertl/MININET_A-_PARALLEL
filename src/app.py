@@ -1,8 +1,6 @@
 from network import *
 from router import Router
 import os
-import time
-import requests
 
 class App():
     def __init__(self):
@@ -17,10 +15,7 @@ class App():
             {"name": "tower_net", "function": self.tower_net},
             {"name": "gml_net", "function": self.gml_net},
             {"name": "clean_network", "function": self.clean_network},
-            {"name": "create_routes", "function": self.create_routes},
-            {"name": "check_flows", "function": self.check_flows},
-            {"name": "force_clean", "function": self.force_clean_onos},
-            {"name": "force_discovery", "function": self.force_discovery}
+            {"name": "create_routes", "function": self.create_routes}
         ]
 
     def main_loop(self):
@@ -40,60 +35,13 @@ class App():
         print(f"Command ({cmd}) not found.")
 	
     def clean_network(self):
-        print("Limpando flows...")
         self.api.delete_all_flows()
 
         if self.net:
-            print("Parando rede Mininet...")
             self.net.stop()
 
         self.net = None
-        
-        print("Forçando limpeza completa do ONOS...")
-
-        time.sleep(2)
-        
-        # Remove dispositivos inativos
         self.api.delete_inactive_devices()
-        time.sleep(3)
-        
-        # Remove todos os dispositivos registrados (forçado)
-        self.force_clean_onos()
-        
-        print("Aguardando ONOS estabilizar...")
-        time.sleep(10)
-
-    def force_clean_onos(self):
-        """Limpeza forçada do ONOS - remove TODOS os dispositivos"""
-        try:
-            # Lista todos os dispositivos
-            url = f"{self.api.BASE_URL}/devices"
-            resp = requests.get(url, auth=self.api.AUTH)
-            if resp.status_code == 200:
-                devices = resp.json().get("devices", [])
-                print(f"Removendo {len(devices)} dispositivos do ONOS...")
-                
-                for device in devices:
-                    dev_id = device["id"]
-                    del_url = f"{url}/{dev_id}"
-                    del_resp = requests.delete(del_url, auth=self.api.AUTH)
-                    if del_resp.status_code in (200, 204):
-                        print(f"  Removido: {dev_id}")
-                    else:
-                        print(f"  Falha ao remover: {dev_id}")
-            
-            # Limpa hosts também
-            host_url = f"{self.api.BASE_URL}/hosts"
-            host_resp = requests.get(host_url, auth=self.api.AUTH)
-            if host_resp.status_code == 200:
-                hosts = host_resp.json().get("hosts", [])
-                for host in hosts:
-                    host_id = f"{host['mac']}/{host['vlan']}"
-                    del_url = f"{host_url}/{host_id}"
-                    requests.delete(del_url, auth=self.api.AUTH)
-                    
-        except Exception as e:
-            print(f"Erro na limpeza forçada: {e}")
 
     def simple_net(self):
         self.clean_network()
@@ -117,60 +65,15 @@ class App():
         exit(0)
 
     def ping_all(self):
-        self.net.pingAll()
+        if self.net:
+            self.net.pingAll()
+        else:
+            print("Nenhuma rede ativa!")
 
     def create_routes(self):
-        print("Limpando flows existentes...")
-        self.api.delete_all_flows()
-        print("Aguardando limpeza...")
-        time.sleep(3)
-        print("Criando rotas completas...")
+        print("Criando rotas...")
         self.router.update()
         self.router.install_all_routes()
-        print("Aguardando aplicação dos flows...")
-
-    def check_flows(self):
-        """Verifica status dos hosts e flows no ONOS"""
-        print("=== DIAGNÓSTICO ===")
-        hosts = self.api.get_hosts()
-        print(f"Hosts descobertos: {len(hosts)}")
-        for host in hosts:
-            print(f"  {host['mac']} -> {host['locations'][0]['elementId']}")
-        
-        # Conta flows por dispositivo
-        url = f"{self.api.BASE_URL}/flows"
-        resp = requests.get(url, auth=self.api.AUTH)
-        if resp.status_code == 200:
-            flows = resp.json().get('flows', [])
-            flow_count = {}
-            for flow in flows:
-                device = flow['deviceId']
-                flow_count[device] = flow_count.get(device, 0) + 1
-            
-            print("Flows por switch:")
-            for device, count in flow_count.items():
-                print(f"  {device}: {count} flows")
-        print("=== FIM DIAGNÓSTICO ===")
-
-    def force_discovery(self):
-        """Força descoberta de todos os hosts"""
-        print("Forçando descoberta de hosts...")
-        if not self.net:
-            print("Erro: Nenhuma rede ativa!")
-            return
-            
-        for host in self.net.hosts:
-            # Gera tráfego ARP para forçar descoberta
-            host.cmd("arping -c2 -I {} 10.0.0.254 &".format(host.defaultIntf()))
-            host.cmd("ping -c1 -b 10.255.255.255 &")
-        
-        print("Aguardando descoberta...")
-        time.sleep(5)
-        
-        # Verifica quantos foram descobertos
-        hosts = self.api.get_hosts()
-        print(f"Hosts descobertos após força: {len(hosts)}")
-        print("Execute check_flows para ver detalhes")
 
 def main():
     app = App()

@@ -55,20 +55,24 @@ class Router():
 
     def create_flow(self, from_hop, to_hop, final_dst):
         """
-        Create a flow that goes from "from_hop" to "to_hop" when trying to reach "final_dst¨
+        Create a flow that goes from "from_hop" to "to_hop" when trying to reach "final_dst"
 
         Args:
-            from_hop (str): Switch IDe.g. "of:0000000000000001"
+            from_hop (str): Switch ID e.g. "of:0000000000000001"
             to_hop (str): Switch ID or MAC ADDR e.g. "of:0000000000000002" or "00:00:00:00:00:A1"
-            final_dst (src): MAC ADDR e.g. "00:00:00:00:00:A1"
+            final_dst (str): MAC ADDR e.g. "00:00:00:00:00:A1"
         """
         port = self.find_port(from_hop, to_hop)
+        if port is None:
+            print(f"ERRO: Porta não encontrada para {from_hop} -> {to_hop}")
+            return
+        
         status, msg = self.api.push_flow(from_hop, final_dst, port)
         print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
     def install_all_routes(self):
         graph = self.build_graph()
-        paths = []
+        print(f"Instalando rotas para {len(self.hosts)} hosts descobertos...")
 
         for src in self.hosts:
             for tgt in self.hosts:
@@ -80,21 +84,25 @@ class Router():
 
                 try:
                     path = nx.shortest_path(graph, source=source, target=target)
-                    paths.append(path)
+                    
+                    # Instala flows apenas nos switches do caminho
+                    for i in range(len(path) - 1):
+                        current = path[i]
+                        next_hop = path[i+1]
+
+                        # Debug: Verificar se current é um switch
+                        is_switch = current in self.switches
+                        print(f"Debug: {current} é switch? {is_switch}")
+                        
+                        # Só cria flow se o hop atual é um switch
+                        if is_switch:
+                            self.create_flow(from_hop=current, to_hop=next_hop, final_dst=target)
+                            
                 except nx.NetworkXNoPath:
                     print(f"Aviso: Não há caminho entre {source} e {target}")
                     continue
 
-        for path in paths:
-            final_dst = path[len(path) - 1]
-            for i in range(len(path) - 1):
-                hop = path[i]
-                next_hop = path[i+1]
-
-                if hop not in self.switches:
-                    continue
-
-                self.create_flow(from_hop=hop, to_hop=next_hop, final_dst=final_dst)
+        print("Instalação de rotas concluída.")
 
 def main():
     print("Installing routing intents for all host pairs...")
