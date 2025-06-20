@@ -15,7 +15,9 @@ class App():
             {"name": "tower_net", "function": self.tower_net},
             {"name": "gml_net", "function": self.gml_net},
             {"name": "clean_network", "function": self.clean_network},
-            {"name": "create_routes", "function": self.create_routes}
+            {"name": "create_routes", "function": self.create_routes},
+            {"name": "check_flows", "function": self.check_flows},
+            {"name": "force_clean", "function": self.force_clean_onos}
         ]
 
     def main_loop(self):
@@ -44,13 +46,52 @@ class App():
 
         self.net = None
         
-        print("Removendo dispositivos inativos do ONOS...")
-        self.api.delete_inactive_devices()
-        
-        # Aguarda ONOS processar a limpeza
-        print("Aguardando limpeza completa...")
+        print("Forçando limpeza completa do ONOS...")
         import time
-        time.sleep(5)
+        time.sleep(2)
+        
+        # Remove dispositivos inativos
+        self.api.delete_inactive_devices()
+        time.sleep(3)
+        
+        # Remove todos os dispositivos registrados (forçado)
+        self.force_clean_onos()
+        
+        print("Aguardando ONOS estabilizar...")
+        time.sleep(10)
+
+    def force_clean_onos(self):
+        """Limpeza forçada do ONOS - remove TODOS os dispositivos"""
+        import requests
+        try:
+            # Lista todos os dispositivos
+            url = f"{self.api.BASE_URL}/devices"
+            resp = requests.get(url, auth=self.api.AUTH)
+            if resp.status_code == 200:
+                devices = resp.json().get("devices", [])
+                print(f"Removendo {len(devices)} dispositivos do ONOS...")
+                
+                for device in devices:
+                    dev_id = device["id"]
+                    del_url = f"{url}/{dev_id}"
+                    del_resp = requests.delete(del_url, auth=self.api.AUTH)
+                    if del_resp.status_code in (200, 204):
+                        print(f"  Removido: {dev_id}")
+                    else:
+                        print(f"  Falha ao remover: {dev_id}")
+            
+            # Limpa hosts também
+            host_url = f"{self.api.BASE_URL}/hosts"
+            host_resp = requests.get(host_url, auth=self.api.AUTH)
+            if host_resp.status_code == 200:
+                hosts = host_resp.json().get("hosts", [])
+                for host in hosts:
+                    host_id = f"{host['mac']}/{host['vlan']}"
+                    del_url = f"{host_url}/{host_id}"
+                    requests.delete(del_url, auth=self.api.AUTH)
+                    
+        except Exception as e:
+            print(f"Erro na limpeza forçada: {e}")
 
     def simple_net(self):
         self.clean_network()
@@ -79,9 +120,36 @@ class App():
     def create_routes(self):
         print("Limpando flows existentes...")
         self.api.delete_all_flows()
+        print("Aguardando limpeza...")
+        time.sleep(3)
         print("Criando rotas completas...")
         self.router.update()
         self.router.install_all_routes()
+        print("Aguardando aplicação dos flows...")
+
+    def check_flows(self):
+        """Verifica status dos hosts e flows no ONOS"""
+        print("=== DIAGNÓSTICO ===")
+        hosts = self.api.get_hosts()
+        print(f"Hosts descobertos: {len(hosts)}")
+        for host in hosts:
+            print(f"  {host['mac']} -> {host['locations'][0]['elementId']}")
+        
+        # Conta flows por dispositivo
+        import requests
+        url = f"{self.api.BASE_URL}/flows"
+        resp = requests.get(url, auth=self.api.AUTH)
+        if resp.status_code == 200:
+            flows = resp.json().get('flows', [])
+            flow_count = {}
+            for flow in flows:
+                device = flow['deviceId']
+                flow_count[device] = flow_count.get(device, 0) + 1
+            
+            print("Flows por switch:")
+            for device, count in flow_count.items():
+                print(f"  {device}: {count} flows")
+        print("=== FIM DIAGNÓSTICO ===")
 
 def main():
     app = App()
