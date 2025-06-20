@@ -35,13 +35,22 @@ class App():
         print(f"Command ({cmd}) not found.")
 	
     def clean_network(self):
+        print("Limpando flows...")
         self.api.delete_all_flows()
 
         if self.net:
+            print("Parando rede Mininet...")
             self.net.stop()
 
         self.net = None
+        
+        print("Removendo dispositivos inativos do ONOS...")
         self.api.delete_inactive_devices()
+        
+        # Aguarda ONOS processar a limpeza
+        print("Aguardando limpeza completa...")
+        import time
+        time.sleep(5)
 
     def simple_net(self):
         self.clean_network()
