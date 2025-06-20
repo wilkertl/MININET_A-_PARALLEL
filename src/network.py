@@ -212,11 +212,11 @@ if __name__ == '__main__':
     # net = run(SimpleTopo())
     
     # Para usar topologia Tower:
-    # net = run(Tower())
+    net = run(Tower())
     
     # Para usar arquivo GML:
-    LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
-    net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
+    #LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
+    #net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
 
     info("*** Iniciando CLI...\n")
     CLI(net)

@@ -90,12 +90,8 @@ class Router():
                         current = path[i]
                         next_hop = path[i+1]
 
-                        # Debug: Verificar se current é um switch
-                        is_switch = current in self.switches
-                        print(f"Debug: {current} é switch? {is_switch}")
-                        
                         # Só cria flow se o hop atual é um switch
-                        if is_switch:
+                        if current in self.switches:
                             self.create_flow(from_hop=current, to_hop=next_hop, final_dst=target)
                             
                 except nx.NetworkXNoPath:
