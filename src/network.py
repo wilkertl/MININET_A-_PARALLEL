@@ -19,6 +19,8 @@ load_dotenv()
 # Para resultados reproduzíveis, descomente a linha abaixo:
 random.seed(42)  # Use qualquer número inteiro
 
+CONTROLERS = ["172.17.0.2"]
+
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
 MIN_BACKBONE_BW_MBPS = 100.0  # Banda mínima entre switches (100 Mbps)
@@ -27,6 +29,10 @@ PROPAGATION_SPEED_KM_PER_MS = 200  # Velocidade da luz na fibra
 MIN_HOSTS_PER_EDGE_SWITCH = 1
 MAX_HOSTS_PER_EDGE_SWITCH = 7
 EDGE_SWITCH_DEGREE_THRESHOLD = 2  # Switches com grau <= 2 são considerados de borda
+
+def make_dpid(index):
+    """Gera um DPID formatado com 16 dígitos hexadecimais"""
+    return format(index, '016x')
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calcula a distancia geodesica em km."""
@@ -41,7 +47,7 @@ class SimpleTopo(Topo):
     def build(self):
         h1 = self.addHost('h1')
         h2 = self.addHost('h2')
-        s1 = self.addSwitch('s1', protocols='OpenFlow13')
+        s1 = self.addSwitch('s1', dpid=make_dpid(1), protocols='OpenFlow13')
 
         self.addLink(h1, s1)
         self.addLink(h2, s1)
@@ -49,20 +55,24 @@ class SimpleTopo(Topo):
 class Tower( Topo ):
     def build( self ):
         spines = [
-            self.addSwitch( 's1' ),
-            self.addSwitch( 's2' )
-       ]
+            self.addSwitch('s1', dpid=make_dpid(1), protocols="OpenFlow13"),
+            self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
+        ]
 
-        # Now create the leaf switches, their hosts and connect them together
+        self.addLink(spines[0], spines[1])
+
+        leafs = []
         for i in range(4):
-            sn = i + 1
-            leaf = self.addSwitch(f's1{sn}')
-            for spine in spines:
-                self.addLink(leaf, spine)
+            leaf = self.addSwitch(f'l{i+1}', dpid=make_dpid(10 + i), protocols="OpenFlow13")
+            leafs.append(leaf)
 
-            for j in range(5):
-                host = self.addHost(f'h{sn}{j+1}')
-                self.addLink( host, leaf )
+        for i, leaf in enumerate(leafs):
+            self.addLink(leaf, spines[0])
+            self.addLink(leaf, spines[1])
+
+            for j in range(1, 6):
+                host = self.addHost(f'h{j + i * 5}')
+                self.addLink(host, leaf)
 
 class GmlTopo(Topo):
     """
@@ -83,9 +93,10 @@ class GmlTopo(Topo):
         self.backbone_switches = []
         
         # Primeiro, adicione todos os switches
-        for node_id, node_data in G.nodes(data=True):
+        for idx, (node_id, node_data) in enumerate(G.nodes(data=True)):
             switch_name = str(node_id)
-            switch_ref = self.addSwitch(switch_name, protocols='OpenFlow13')
+            dpid = make_dpid(idx + 1)
+            switch_ref = self.addSwitch(switch_name, dpid=dpid, protocols='OpenFlow13')
             switches[node_id] = switch_ref
 
         # Classifica switches como edge ou backbone baseado no grau (número de conexões)
@@ -156,10 +167,12 @@ class GmlTopo(Topo):
 
             # Adiciona link com delay e bandwidth para simulação realística
             self.addLink(
-                switches[u], 
-                switches[v], 
+                switches[u],
+                switches[v],
                 bw=bw_mbps,
-                delay="{:.2f}ms".format(delay_ms)
+                delay="{:.2f}ms".format(delay_ms),
+                use_htb=True,
+                r2q=10  # ou até 5, se ainda houver warning
             )
 
 def run(topo):
@@ -167,7 +180,7 @@ def run(topo):
 
     # Usa TCLink para suportar parâmetros de rede (bandwidth e delay)
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
-    controllers = os.getenv('CONTROLERS', '127.0.0.1').split(',')
+    controllers = os.getenv('CONTROLERS', '172.17.0.2').split(',')
 
     # Adiciona múltiplos controladores
     for i, ip in enumerate(controllers):
@@ -176,7 +189,6 @@ def run(topo):
         net.addController(c)
 
     net.build()
-    #sleep(10)
     net.start()
 
     sleep(10)
@@ -204,11 +216,11 @@ if __name__ == '__main__':
     # net = run(SimpleTopo())
     
     # Para usar topologia Tower:
-    # net = run(Tower())
+    net = run(Tower())
     
     # Para usar arquivo GML:
-    LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
-    net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
+    #LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
+    #net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
 
     info("*** Iniciando CLI...\n")
     CLI(net)

@@ -86,6 +86,12 @@ class App():
         self.clean_network()
         exit(0)
 
+    def ping_all(self):
+        if self.net:
+            self.net.pingAll()
+        else:
+            print("Nenhuma rede ativa!")
+
     def create_routes(self):
         print("Limpando flows existentes...")
         #self.api.delete_all_flows()
