@@ -19,7 +19,8 @@ class App():
             {"name": "clean_network", "function": self.clean_network},
             {"name": "create_routes", "function": self.create_routes},
             {"name": "check_flows", "function": self.check_flows},
-            {"name": "force_clean", "function": self.force_clean_onos}
+            {"name": "force_clean", "function": self.force_clean_onos},
+            {"name": "force_discovery", "function": self.force_discovery}
         ]
 
     def main_loop(self):
@@ -150,6 +151,26 @@ class App():
             for device, count in flow_count.items():
                 print(f"  {device}: {count} flows")
         print("=== FIM DIAGNÓSTICO ===")
+
+    def force_discovery(self):
+        """Força descoberta de todos os hosts"""
+        print("Forçando descoberta de hosts...")
+        if not self.net:
+            print("Erro: Nenhuma rede ativa!")
+            return
+            
+        for host in self.net.hosts:
+            # Gera tráfego ARP para forçar descoberta
+            host.cmd("arping -c2 -I {} 10.0.0.254 &".format(host.defaultIntf()))
+            host.cmd("ping -c1 -b 10.255.255.255 &")
+        
+        print("Aguardando descoberta...")
+        time.sleep(5)
+        
+        # Verifica quantos foram descobertos
+        hosts = self.api.get_hosts()
+        print(f"Hosts descobertos após força: {len(hosts)}")
+        print("Execute check_flows para ver detalhes")
 
 def main():
     app = App()
