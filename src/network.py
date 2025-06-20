@@ -14,7 +14,7 @@ from mininet.cli import CLI
 from mininet.log import setLogLevel, info, error
 from time import sleep
 
-CONTROLERS = ["172.17.0.5", "172.17.0.6", "172.17.0.7"]
+CONTROLERS = ["127.0.0.1"]
 
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
