@@ -68,7 +68,10 @@ class Router():
             return
         
         status, msg = self.api.push_flow(from_hop, final_dst, port)
-        print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
+
+        if status != 201:
+            raise Exeption(msg)
+        #print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
 
     def install_all_routes(self):
         graph = self.build_graph()
@@ -97,7 +100,6 @@ class Router():
                 except nx.NetworkXNoPath:
                     print(f"Aviso: Não há caminho entre {source} e {target}")
                     continue
-
         print("Instalação de rotas concluída.")
 
 def main():

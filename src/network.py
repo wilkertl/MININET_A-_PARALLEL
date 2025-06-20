@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import os
 import sys
 import math
@@ -14,6 +11,7 @@ from mininet.cli import CLI
 from mininet.log import setLogLevel, info, error
 from time import sleep
 from dotenv import load_dotenv
+from threading import Lock
 
 # Carrega variáveis do arquivo .env
 load_dotenv()
@@ -21,7 +19,7 @@ load_dotenv()
 # Para resultados reproduzíveis, descomente a linha abaixo:
 random.seed(42)  # Use qualquer número inteiro
 
-CONTROLERS = ["127.0.0.1"]
+CONTROLERS = ["172.17.0.2"]
 
 # Configurações para topologia GML
 MAX_BACKBONE_BW_GBPS = 10.0
@@ -54,8 +52,8 @@ class SimpleTopo(Topo):
         self.addLink(h1, s1)
         self.addLink(h2, s1)
 
-class Tower(Topo):
-    def build(self):
+class Tower( Topo ):
+    def build( self ):
         spines = [
             self.addSwitch('s1', dpid=make_dpid(1), protocols="OpenFlow13"),
             self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
@@ -182,25 +180,28 @@ def run(topo):
 
     # Usa TCLink para suportar parâmetros de rede (bandwidth e delay)
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
+    controllers = os.getenv('CONTROLERS', '172.17.0.2').split(',')
 
     # Adiciona múltiplos controladores
-    for i, ip in enumerate(CONTROLERS):
+    for i, ip in enumerate(controllers):
         name = "c{}".format(i)
         c = RemoteController(name, ip=ip, port=6653)
         net.addController(c)
 
     net.build()
     net.start()
+
     sleep(10)
 
     # Descobrindo todos os hosts
     for host in net.hosts:
-        host.cmd("ping -c1 10.0.0.1 &")
+        host.lock = Lock()
+        host.cmd("ping -c 1 10.0.0.1 &")
 
     # Exibe informações da topologia após inicialização
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
         info("*** RESUMO DA TOPOLOGIA ***\n")
-        info("Controladores: {}\n".format(CONTROLERS))
+        info("Controladores: {}\n".format(controllers))
         info("Switches de BORDA: {}\n".format([s['name'] for s in topo.edge_switches]))
         info("Switches de BACKBONE: {}\n".format([s['name'] for s in topo.backbone_switches]))
         info("Total de hosts: {}\n".format(len(net.hosts)))

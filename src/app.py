@@ -1,6 +1,22 @@
+from itertools import permutations
+from functools import partial
+import random
 from network import *
 from router import Router
+import re
+from multiprocessing.dummy import Pool
+from time import sleep
+import threading
 import os
+
+def unique_host_pairs(hosts):
+    random.shuffle(hosts)
+
+    pairs = []
+    for i in range(0, len(hosts) - 1, 2):
+        pairs.append((hosts[i], hosts[i+1]))
+
+    return pairs
 
 class App():
     def __init__(self):
@@ -10,13 +26,19 @@ class App():
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
-            {"name": "ping_all", "function": self.ping_all},
-	        {"name": "simple_net", "function": self.simple_net},
+            {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
             {"name": "gml_net", "function": self.gml_net},
+            {"name": "ping_random", "function": self.ping_random},
+            {"name": "ping_all", "function": self.ping_all},
+            {"name": "iperf_random", "function": self.iperf_random},
+            {"name": "create_routes", "function": self.create_routes},
+            {"name": "traffic", "function": self.start_dummy_traffic},
             {"name": "clean_network", "function": self.clean_network},
             {"name": "create_routes", "function": self.create_routes}
         ]
+        self.clean_network()
+        
 
     def main_loop(self):
         print("""Type "help" to see a list of possible commands """)
@@ -71,9 +93,45 @@ class App():
             print("Nenhuma rede ativa!")
 
     def create_routes(self):
-        print("Criando rotas...")
+        print("Limpando flows existentes...")
+        #self.api.delete_all_flows()
+        print("Criando rotas completas...")
         self.router.update()
         self.router.install_all_routes()
+
+    def ping_random(self):
+        h1, h2 = random.sample(self.net.hosts, 2)
+        pair = (h1, h2)
+
+        results = self.net.ping(pair)
+        print(results)
+        return results
+
+    def ping_all(self):
+        self.net.pingAll()
+
+    def iperf_random(self):
+        h1, h2 = random.sample(self.net.hosts, 2)
+        pair = (h1, h2)
+        self.net.iperf(pair)
+	
+    def start_dummy_traffic(self):
+        hosts = self.net.hosts[:]
+        threads = []
+
+        def worker(h1, h2):
+            with h1.lock:
+                h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 1G")
+
+        pairs = unique_host_pairs(hosts)
+
+        for h1, h2 in pairs:
+            t = threading.Thread(target=worker, args=(h1, h2))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
 
 def main():
     app = App()
