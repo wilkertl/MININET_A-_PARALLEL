@@ -14,7 +14,7 @@ import networkx as nx # type: ignore
 import matplotlib.pyplot as plt # type: ignore
 
 # --- CONFIGURAÇÕES GLOBAIS ---
-TOPOLOGY_FILE_URL = '/home/matheus-lucas/Estudos/UFG/8_SEM/CP/projeto_final_cp/MININET_A-_PARALLEL/src/tata_nld.gml'
+TOPOLOGY_FILE_URL = '/home/wilker/MININET_A-_PARALLEL/src/brasil.gml'
 MAX_BACKBONE_BW_GBPS = 10.0
 
 # --- FIM DAS CONFIGURAÇÕES ---

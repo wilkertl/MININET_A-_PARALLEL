@@ -28,12 +28,12 @@ class App():
             {"name": "exit", "function": self.exit_app},
             {"name": "simple_net", "function": self.simple_net},
             {"name": "tower_net", "function": self.tower_net},
+            {"name": "gml_net", "function": self.gml_net},
             {"name": "ping_random", "function": self.ping_random},
             {"name": "ping_all", "function": self.ping_all},
             {"name": "iperf_random", "function": self.iperf_random},
             {"name": "create_routes", "function": self.create_routes},
             {"name": "traffic", "function": self.start_dummy_traffic},
-            {"name": "gml_net", "function": self.gml_net},
             {"name": "clean_network", "function": self.clean_network},
             {"name": "create_routes", "function": self.create_routes}
         ]
@@ -75,7 +75,7 @@ class App():
 
     def gml_net(self):
         self.clean_network()
-        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tata_nld.gml')
+        gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
         self.net = run(GmlTopo(gml_file=gml_file))
 
     def help(self):
@@ -87,6 +87,9 @@ class App():
         exit(0)
 
     def create_routes(self):
+        print("Limpando flows existentes...")
+        self.api.delete_all_flows()
+        print("Criando rotas completas...")
         self.router.update()
         self.router.install_all_routes()
 
@@ -111,7 +114,8 @@ class App():
         threads = []
 
         def worker(h1, h2):
-            h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 1G")
+            with h1.lock:
+                h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 1G")
 
         pairs = unique_host_pairs(hosts)
 
