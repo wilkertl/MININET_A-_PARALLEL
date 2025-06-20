@@ -2,6 +2,7 @@ from network import *
 from router import Router
 import os
 import time
+import requests
 
 class App():
     def __init__(self):
@@ -48,7 +49,7 @@ class App():
         self.net = None
         
         print("Forçando limpeza completa do ONOS...")
-        import time
+
         time.sleep(2)
         
         # Remove dispositivos inativos
@@ -63,7 +64,6 @@ class App():
 
     def force_clean_onos(self):
         """Limpeza forçada do ONOS - remove TODOS os dispositivos"""
-        import requests
         try:
             # Lista todos os dispositivos
             url = f"{self.api.BASE_URL}/devices"
@@ -137,7 +137,6 @@ class App():
             print(f"  {host['mac']} -> {host['locations'][0]['elementId']}")
         
         # Conta flows por dispositivo
-        import requests
         url = f"{self.api.BASE_URL}/flows"
         resp = requests.get(url, auth=self.api.AUTH)
         if resp.status_code == 200:
