@@ -1,13 +1,21 @@
 from itertools import permutations
 from functools import partial
 import random
-from network import *
 from router import Router
 import re
 from multiprocessing.dummy import Pool
-from time import sleep
 import threading
+import time
 import os
+import subprocess
+
+# Detecta se o Mininet está disponível
+MININET_AVAILABLE = False
+try:
+    from network import *
+    MININET_AVAILABLE = True
+except ImportError:
+    print("Mininet não detectado - comandos de rede local desabilitados")
 
 def unique_host_pairs(hosts):
     random.shuffle(hosts)
@@ -23,21 +31,28 @@ class App():
         self.net = None
         self.router = Router()
         self.api = self.router.api
+        
+        # Comandos básicos sempre disponíveis
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
-            {"name": "simple_net", "function": self.simple_net},
-            {"name": "tower_net", "function": self.tower_net},
-            {"name": "gml_net", "function": self.gml_net},
-            {"name": "ping_random", "function": self.ping_random},
-            {"name": "ping_all", "function": self.ping_all},
-            {"name": "iperf_random", "function": self.iperf_random},
             {"name": "create_routes", "function": self.create_routes},
-            {"name": "traffic", "function": self.start_dummy_traffic},
-            {"name": "clean_network", "function": self.clean_network},
-            {"name": "create_routes", "function": self.create_routes}
+            {"name": "delete_routes", "function": self.delete_routes}
         ]
-        self.clean_network()
+        
+        # Comandos do Mininet (apenas se disponível)
+        if MININET_AVAILABLE:
+            mininet_commands = [
+                {"name": "simple_net", "function": self.simple_net},
+                {"name": "tower_net", "function": self.tower_net},
+                {"name": "gml_net", "function": self.gml_net},
+                {"name": "ping_random", "function": self.ping_random},
+                {"name": "ping_all", "function": self.ping_all},
+                {"name": "iperf_random", "function": self.iperf_random},
+                {"name": "traffic", "function": self.start_dummy_traffic},
+                {"name": "clean_network", "function": self.clean_network}
+            ]
+            self.commands.extend(mininet_commands)
         
 
     def main_loop(self):
@@ -57,6 +72,13 @@ class App():
         print(f"Command ({cmd}) not found.")
 	
     def clean_network(self):
+        if not MININET_AVAILABLE:
+            print("Mininet não disponível - limpando apenas flows")
+            self.api.delete_all_flows()
+            self.api.delete_inactive_devices()
+            return
+            
+        print("Limpando rede completa...")
         self.api.delete_all_flows()
 
         if self.net:
@@ -64,16 +86,35 @@ class App():
 
         self.net = None
         self.api.delete_inactive_devices()
+        
+        # Equivalente ao sudo mn -c
+        try:
+            print("Executando limpeza profunda do Mininet...")
+            subprocess.run(['sudo', 'mn', '-c'], check=True, capture_output=True, text=True)
+            print("Limpeza concluída!")
+        except subprocess.CalledProcessError as e:
+            print(f"Aviso: Erro na limpeza do Mininet: {e}")
+        except FileNotFoundError:
+            print("Aviso: Comando 'mn' não encontrado")
 
     def simple_net(self):
+        if not MININET_AVAILABLE:
+            print("Comando requer Mininet!")
+            return
         self.clean_network()
         self.net = run(SimpleTopo())
 
     def tower_net(self):
+        if not MININET_AVAILABLE:
+            print("Comando requer Mininet!")
+            return
         self.clean_network()
         self.net = run(Tower())
 
     def gml_net(self):
+        if not MININET_AVAILABLE:
+            print("Comando requer Mininet!")
+            return
         self.clean_network()
         gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
         self.net = run(GmlTopo(gml_file=gml_file))
@@ -83,23 +124,27 @@ class App():
             print(cmd["name"])
 
     def exit_app(self):
-        self.clean_network()
         exit(0)
 
-    def ping_all(self):
-        if self.net:
-            self.net.pingAll()
-        else:
-            print("Nenhuma rede ativa!")
-
     def create_routes(self):
-        print("Limpando flows existentes...")
-        #self.api.delete_all_flows()
         print("Criando rotas completas...")
+        start = time.time()
         self.router.update()
         self.router.install_all_routes()
+        total_time = time.time() - start
+        print(f"Time spend to create routes {total_time}")
+        print("Done.")
+
+    def delete_routes(self):
+        print("Deletando rotas completas...")
+        start = time.time()
+        self.router.update()
+        self.api.delete_all_flows()
 
     def ping_random(self):
+        if not MININET_AVAILABLE or not self.net:
+            print("Nenhuma rede ativa!")
+            return
         h1, h2 = random.sample(self.net.hosts, 2)
         pair = (h1, h2)
 
@@ -108,14 +153,27 @@ class App():
         return results
 
     def ping_all(self):
+        if not MININET_AVAILABLE or not self.net:
+            print("Nenhuma rede ativa!")
+            return
+        start = time.time()
         self.net.pingAll()
+        total_time = time.time() - start
+        print(f"Time spend to ping all {total_time}")
+        print("Done.")
 
     def iperf_random(self):
+        if not MININET_AVAILABLE or not self.net:
+            print("Nenhuma rede ativa!")
+            return
         h1, h2 = random.sample(self.net.hosts, 2)
         pair = (h1, h2)
         self.net.iperf(pair)
 	
     def start_dummy_traffic(self):
+        if not MININET_AVAILABLE or not self.net:
+            print("Nenhuma rede ativa!")
+            return
         hosts = self.net.hosts[:]
         threads = []
 
