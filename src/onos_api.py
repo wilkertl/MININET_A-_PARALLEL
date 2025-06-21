@@ -32,8 +32,7 @@ class OnosApi():
         response = requests.get(url, auth=self.AUTH)
         response.raise_for_status()
         devices = response.json().get("devices", [])
-        switches = [device['id'] for device in devices if device["type"] == "SWITCH"]
-        return switches
+        return [device['id'] for device in devices if device["type"] == "SWITCH"]
 
     def push_intent(self, ingress_point, egress_point):
         data = {
@@ -47,60 +46,28 @@ class OnosApi():
         return r.status_code, r.text
 
     def push_flow(self, switch_id, output_port, priority, eth_type=None, eth_dst=None, eth_src=None, in_port=None):
-        """
-        Envia uma regra de fluxo para um dispositivo específico no ONOS.
-        Esta função é flexível e pode criar regras baseadas em múltiplos critérios.
-
-        Args:
-            switch_id (str): O ID do dispositivo (ex: "of:0000000000000001").
-            output_port (str): A porta de saída (ex: "1", "FLOOD", "CONTROLLER").
-            priority (int): A prioridade do fluxo.
-            eth_type (str, optional): O EtherType para o match (ex: "0x0806" para ARP).
-            eth_dst (str, optional): O endereço MAC de destino para o match.
-            eth_src (str, optional): O endereço MAC de origem para o match.
-            in_port (str, optional): A porta de entrada para o match.
-        """
-            
+        """Envia uma regra de fluxo para um dispositivo específico no ONOS"""
         try:
             url = f"{self.BASE_URL}/flows/{switch_id}"
 
             criteria = []
             if in_port:
-                criteria.append({
-                    "type": "IN_PORT",
-                    "port": in_port
-                })
+                criteria.append({"type": "IN_PORT", "port": in_port})
             if eth_src:
-                criteria.append({
-                    "type": "ETH_SRC",
-                    "mac": eth_src
-                })
+                criteria.append({"type": "ETH_SRC", "mac": eth_src})
             if eth_dst:
-                criteria.append({
-                    "type": "ETH_DST",
-                    "mac": eth_dst
-                })
+                criteria.append({"type": "ETH_DST", "mac": eth_dst})
             if eth_type:
-                criteria.append({
-                    "type": "ETH_TYPE",
-                    "ethType": eth_type
-                })
+                criteria.append({"type": "ETH_TYPE", "ethType": eth_type})
 
             flow_data = {
                 "priority": priority,
                 "isPermanent": True,
                 "deviceId": switch_id,
                 "treatment": {
-                    "instructions": [
-                        {
-                            "type": "OUTPUT",
-                            "port": output_port
-                        }
-                    ]
+                    "instructions": [{"type": "OUTPUT", "port": output_port}]
                 },
-                "selector": {
-                    "criteria": criteria
-                }
+                "selector": {"criteria": criteria}
             }
 
             response = requests.post(
@@ -116,15 +83,7 @@ class OnosApi():
             return 500, f"Erro: {e}"
     
     def push_flows_batch(self, flows_data):
-        """
-        Envia múltiplos flows em massa
-        
-        Args:
-            flows_data: Lista de dicionários com dados dos flows
-        
-        Returns:
-            Lista de tuplas (status_code, message)
-        """
+        """Envia múltiplos flows em massa"""
         results = []
         created_count = 0
         for i, flow in enumerate(flows_data):
@@ -147,27 +106,15 @@ class OnosApi():
         print(f"✓ Flows processados: {created_count} criados com sucesso")
         return results
     
-
-    
     def delete_flows_batch(self, flows_to_delete):
-        """
-        Deleta múltiplos flows em massa usando endpoint batch do ONOS
-        
-        Args:
-            flows_to_delete: Lista de dicionários com {'device_id': ..., 'flow_id': ...}
-        
-        Returns:
-            Tupla (status_code, message)
-        """
+        """Deleta múltiplos flows em massa usando endpoint batch do ONOS"""
         if not flows_to_delete:
             return 200, "No flows to delete"
             
-        flows_list = []
-        for flow in flows_to_delete:
-            flows_list.append({
-                "deviceId": flow['device_id'],
-                "flowId": flow['flow_id']
-            })
+        flows_list = [
+            {"deviceId": flow['device_id'], "flowId": flow['flow_id']}
+            for flow in flows_to_delete
+        ]
         
         payload = {"flows": flows_list}
         
@@ -198,7 +145,6 @@ class OnosApi():
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
-
     def delete_all_flows(self):
         get_url = f"{self.BASE_URL}/flows"
         response = requests.get(get_url, auth=self.AUTH)
@@ -228,10 +174,8 @@ class OnosApi():
         else:
             print("No flows to delete")
 
-
     def delete_inactive_devices(self):
         url = f"{self.BASE_URL}/devices"
-
         resp = requests.get(url, auth=self.AUTH)
         devices = resp.json().get("devices", [])
 
@@ -247,16 +191,6 @@ class OnosApi():
 
 def main():
     api = OnosApi()
-    #push_flow("of:000000000000000d", "00:00:00:00:00:03", "2")
-    # print(api.get_topology())
-    # print()
-    # metrics = api.get_metrics()["metrics"]
-    # print(metrics[0])
-    # print()
-    # print(metrics[1])
-    # print()
-    # ports = api.get_port_statistics("of:000000000000000d")["statistics"][0]["ports"]
-    # print(ports[0])
     api.delete_all_flows()
     api.delete_inactive_devices()
 

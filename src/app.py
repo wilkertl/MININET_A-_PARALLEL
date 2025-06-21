@@ -1,5 +1,3 @@
-from itertools import permutations
-from functools import partial
 import random
 from router import Router
 import threading
@@ -126,23 +124,21 @@ class App():
         self.router.update()
         self.router.install_all_routes()
         total_time = time.time() - start
-        print(f"Time spend to create routes {total_time}")
-        print("Done.")
+        print(f"Tempo gasto: {total_time:.2f}s")
+        print("Concluído.")
 
     def delete_routes(self):
         print("Deletando rotas completas...")
-        start = time.time()
         self.router.update()
         self.api.delete_all_flows()
+        print("Concluído.")
 
     def ping_random(self):
         if not MININET_AVAILABLE or not self.net:
             print("Nenhuma rede ativa!")
             return
         h1, h2 = random.sample(self.net.hosts, 2)
-        pair = (h1, h2)
-
-        results = self.net.ping(pair)
+        results = self.net.ping([h1, h2])
         print(results)
         return results
 
@@ -153,16 +149,15 @@ class App():
         start = time.time()
         self.net.pingAll()
         total_time = time.time() - start
-        print(f"Time spend to ping all {total_time}")
-        print("Done.")
+        print(f"Tempo gasto: {total_time:.2f}s")
+        print("Concluído.")
 
     def iperf_random(self):
         if not MININET_AVAILABLE or not self.net:
             print("Nenhuma rede ativa!")
             return
         h1, h2 = random.sample(self.net.hosts, 2)
-        pair = (h1, h2)
-        self.net.iperf(pair)
+        self.net.iperf([h1, h2])
 	
     def start_dummy_traffic(self):
         if not MININET_AVAILABLE or not self.net:
