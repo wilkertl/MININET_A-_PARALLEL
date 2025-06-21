@@ -2,8 +2,6 @@ from itertools import permutations
 from functools import partial
 import random
 from router import Router
-import re
-from multiprocessing.dummy import Pool
 import threading
 import time
 import os
@@ -19,11 +17,9 @@ except ImportError:
 
 def unique_host_pairs(hosts):
     random.shuffle(hosts)
-
     pairs = []
     for i in range(0, len(hosts) - 1, 2):
         pairs.append((hosts[i], hosts[i+1]))
-
     return pairs
 
 class App():
@@ -32,15 +28,13 @@ class App():
         self.router = Router()
         self.api = self.router.api
         
-        # Comandos básicos sempre disponíveis
         self.commands = [
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
             {"name": "create_routes", "function": self.create_routes},
-            {"name": "delete_routes", "function": self.delete_routes}
+            {"name": "delete_routes", "function": self.delete_routes},
         ]
         
-        # Comandos do Mininet (apenas se disponível)
         if MININET_AVAILABLE:
             mininet_commands = [
                 {"name": "simple_net", "function": self.simple_net},
@@ -50,7 +44,7 @@ class App():
                 {"name": "ping_all", "function": self.ping_all},
                 {"name": "iperf_random", "function": self.iperf_random},
                 {"name": "traffic", "function": self.start_dummy_traffic},
-                {"name": "clean_network", "function": self.clean_network}
+                {"name": "clean_network", "function": self.clean_network},
             ]
             self.commands.extend(mininet_commands)
         
@@ -70,7 +64,7 @@ class App():
                 return command["function"]
             
         print(f"Command ({cmd}) not found.")
-	
+
     def clean_network(self):
         if not MININET_AVAILABLE:
             print("Mininet não disponível - limpando apenas flows")
@@ -154,7 +148,7 @@ class App():
 
     def ping_all(self):
         if not MININET_AVAILABLE or not self.net:
-            print("Nenhuma rede ativa!")
+            print("Mininet não disponível ou rede não criada!")
             return
         start = time.time()
         self.net.pingAll()
@@ -179,7 +173,7 @@ class App():
 
         def worker(h1, h2):
             with h1.lock:
-                h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 1G")
+                h1.cmd(f"iperf -c {h2.IP()} -u -t 20 -b 10M")
 
         pairs = unique_host_pairs(hosts)
 
@@ -190,7 +184,7 @@ class App():
 
         for t in threads:
             t.join()
-
+        
 def main():
     app = App()
     app.main_loop()
