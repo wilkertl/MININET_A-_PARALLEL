@@ -13,22 +13,24 @@ from time import sleep
 from dotenv import load_dotenv
 from threading import Lock
 
-# Carrega variáveis do arquivo .env
 load_dotenv()
 
-# Para resultados reproduzíveis, descomente a linha abaixo:
-random.seed(42)  # Use qualquer número inteiro
-
-CONTROLERS = ["172.17.0.2"]
+random.seed(42)
 
 # Configurações para topologia GML
-MAX_BACKBONE_BW_GBPS = 10.0
-MIN_BACKBONE_BW_MBPS = 100.0  # Banda mínima entre switches (100 Mbps)
-MAX_BACKBONE_BW_MBPS = 1000.0  # Banda máxima entre switches (1 Gbps)
-PROPAGATION_SPEED_KM_PER_MS = 200  # Velocidade da luz na fibra
+MIN_BACKBONE_BW_MBPS = 10.0  
+MAX_BACKBONE_BW_MBPS = 100.0  
+PROPAGATION_SPEED_KM_PER_MS = 200  
 MIN_HOSTS_PER_EDGE_SWITCH = 1
 MAX_HOSTS_PER_EDGE_SWITCH = 7
-EDGE_SWITCH_DEGREE_THRESHOLD = 2  # Switches com grau <= 2 são considerados de borda
+EDGE_SWITCH_DEGREE_THRESHOLD = 2  
+LOW_LINK_CHANCE = 0.20 
+HOST_BW_MBPS = 10.0
+
+# Configurações para experimento de sobrecarga Tower
+SPINE_BOTTLENECK_BW_MBPS = 30.0   # Gargalo intencional nos spines
+LEAF_SPINE_BW_MBPS = 50.0         # Links leaf-spine normais
+OVERLOAD_LINK_CHANCE = 0.3        # 30% chance de link ser gargalo
 
 def make_dpid(index):
     """Gera um DPID formatado com 16 dígitos hexadecimais"""
@@ -59,7 +61,15 @@ class Tower( Topo ):
             self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
         ]
 
-        self.addLink(spines[0], spines[1])
+        # Link entre spines - GARGALO INTENCIONAL para experimento
+        spine_bw_mbps = SPINE_BOTTLENECK_BW_MBPS  # Sempre gargalo
+        print(f"INFO: Link spine s1-s2 com {spine_bw_mbps}Mbps (GARGALO)")
+        self.addLink(spines[0], spines[1], 
+                    bw=spine_bw_mbps,
+                    delay="1.0ms",
+                    loss=0.1,
+                    max_queue_size=50,  # Queue menor para gargalo
+                    use_htb=True)
 
         leafs = []
         for i in range(4):
@@ -67,12 +77,28 @@ class Tower( Topo ):
             leafs.append(leaf)
 
         for i, leaf in enumerate(leafs):
-            self.addLink(leaf, spines[0])
-            self.addLink(leaf, spines[1])
+            # Links leaf-spine com alguns gargalos estratégicos
+            for j, spine in enumerate(spines):
+                # Cria gargalos em alguns links específicos
+                if (i == 0 and j == 0) or (i == 2 and j == 1):  # l1-s1 e l3-s2 são gargalos
+                    link_bw_mbps = SPINE_BOTTLENECK_BW_MBPS
+                    queue_size = 50
+                    print(f"INFO: Link {leaf}-{spine} com {link_bw_mbps}Mbps (GARGALO)")
+                else:
+                    link_bw_mbps = LEAF_SPINE_BW_MBPS
+                    queue_size = 100
+                    
+                self.addLink(leaf, spine,
+                            bw=link_bw_mbps,
+                            delay="0.5ms",
+                            loss=0.1,
+                            max_queue_size=queue_size,
+                            use_htb=True)
 
+            # Links host-leaf com largura de banda de host
             for j in range(1, 6):
                 host = self.addHost(f'h{j + i * 5}')
-                self.addLink(host, leaf)
+                self.addLink(host, leaf, bw=HOST_BW_MBPS)
 
 class GmlTopo(Topo):
     """
@@ -92,18 +118,15 @@ class GmlTopo(Topo):
         self.edge_switches = []
         self.backbone_switches = []
         
-        # Primeiro, adicione todos os switches
         for idx, (node_id, node_data) in enumerate(G.nodes(data=True)):
             switch_name = str(node_id)
             dpid = make_dpid(idx + 1)
             switch_ref = self.addSwitch(switch_name, dpid=dpid, protocols='OpenFlow13')
             switches[node_id] = switch_ref
 
-        # Classifica switches como edge ou backbone baseado no grau (número de conexões)
         info("*** Classificando switches...\n")
         for node_id, switch_ref in switches.items():
             switch_degree = G.degree(node_id)
-            # switch_ref é uma string (nome do switch), não um objeto
             switch_name = switch_ref if isinstance(switch_ref, str) else str(switch_ref)
             
             if switch_degree <= EDGE_SWITCH_DEGREE_THRESHOLD:
@@ -128,7 +151,6 @@ class GmlTopo(Topo):
             [s['name'] for s in self.backbone_switches]
         ))
 
-        # Adiciona hosts apenas aos switches de borda com distribuição uniforme (1-7)
         info("*** Adicionando hosts aos switches de borda...\n")
         total_hosts = 0
         for edge_switch in self.edge_switches:
@@ -138,7 +160,7 @@ class GmlTopo(Topo):
             for i in range(num_hosts):
                 host_name = "h{}-s{}".format(total_hosts + 1, edge_switch['name'])
                 host = self.addHost(host_name)
-                self.addLink(host, switches[edge_switch['id']], bw=100)
+                self.addLink(host, switches[edge_switch['id']], bw=HOST_BW_MBPS)
                 total_hosts += 1
 
         info("*** Total de hosts adicionados: {}\n".format(total_hosts))
@@ -155,34 +177,34 @@ class GmlTopo(Topo):
             except KeyError:
                 delay_ms = 1.0
 
-            # Usar distribuição uniforme para banda entre switches
-            bw_mbps = random.uniform(MIN_BACKBONE_BW_MBPS, MAX_BACKBONE_BW_MBPS)
+
+            if random.uniform(0, 1) < LOW_LINK_CHANCE:
+                bw_mbps = MIN_BACKBONE_BW_MBPS
+            else:
+                bw_mbps = MAX_BACKBONE_BW_MBPS
             
-            # Obter nomes dos switches para logging
             switch_u_name = switches[u] if isinstance(switches[u], str) else str(switches[u])
             switch_v_name = switches[v] if isinstance(switches[v], str) else str(switches[v])
             
             info("Link {}-{}: BW={:.1f}Mbps, Delay={:.2f}ms\n".format(
                 switch_u_name, switch_v_name, bw_mbps, delay_ms))
-
-            # Adiciona link com delay e bandwidth para simulação realística
+            
             self.addLink(
                 switches[u],
                 switches[v],
                 bw=bw_mbps,
                 delay="{:.2f}ms".format(delay_ms),
-                use_htb=True,
-                r2q=10  # ou até 5, se ainda houver warning
+                loss=0.1,  
+                max_queue_size=100,
+                use_htb=True
             )
 
 def run(topo):
     setLogLevel('info')
 
-    # Usa TCLink para suportar parâmetros de rede (bandwidth e delay)
     net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
     controllers = os.getenv('CONTROLERS', '172.17.0.2').split(',')
 
-    # Adiciona múltiplos controladores
     for i, ip in enumerate(controllers):
         name = "c{}".format(i)
         c = RemoteController(name, ip=ip, port=6653)
@@ -191,14 +213,12 @@ def run(topo):
     net.build()
     net.start()
 
-    sleep(10)
+    sleep(2)
 
-    # Descobrindo todos os hosts
     for host in net.hosts:
         host.lock = Lock()
         host.cmd("ping -c 1 10.0.0.1 &")
 
-    # Exibe informações da topologia após inicialização
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
         info("*** RESUMO DA TOPOLOGIA ***\n")
         info("Controladores: {}\n".format(controllers))
@@ -209,16 +229,12 @@ def run(topo):
     return net
 
 if __name__ == '__main__':
-    # Exemplo de uso
     setLogLevel('info')
     
-    # Para usar topologia simples com múltiplos controladores:
     # net = run(SimpleTopo())
     
-    # Para usar topologia Tower:
     net = run(Tower())
     
-    # Para usar arquivo GML:
     #LOCAL_GML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
     #net = run(GmlTopo(gml_file=LOCAL_GML_FILE))
 
@@ -226,4 +242,3 @@ if __name__ == '__main__':
     CLI(net)
     info("*** Parando a rede...\n")
     net.stop()
-

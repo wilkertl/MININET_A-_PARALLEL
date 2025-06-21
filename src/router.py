@@ -1,116 +1,120 @@
-import networkx as nx # type: ignore
-from onos_api import OnosApi
+import networkx as nx
+import requests
+from itertools import combinations
 import time
 
+from onos_api import OnosApi 
+
 class Router():
-    def __init__(self, onos_ip=None, port=None):
-        self.hosts = None
-        self.switches = None
-        self.links = None
+    def __init__(self, onos_ip='127.0.0.1', port=8181):
         self.api = OnosApi(onos_ip, port)
+        self.hosts = []
+        self.switches = []
+        self.links = []             
+        
         self.update()
 
     def update(self):
+        """Atualiza a topologia da rede a partir do ONOS."""
         self.hosts = self.api.get_hosts()
         self.switches = self.api.get_switches()
         self.links = self.api.get_links()
 
     def find_port(self, src, dst):
-        """
-        Returns the port that connects switch src to device dst
-
-        Args:
-            src (str): e.g., "of:0000000000000001"
-            dst (str): e.g., "of:0000000000000002" or "00:00:00:00:00:A1"
-        """
-
-        # if the link is beetween two switches
+        """Encontra a porta de conexão entre dois dispositivos."""
         for link in self.links:
             if link['src']['device'] == src and link['dst']['device'] == dst:
                 return link['src']['port']
-        
-        # If the link is beetwween a switch and a host
         for host in self.hosts:
             if host['mac'] == dst and host['locations'][0]['elementId'] == src:
                 return host['locations'][0]['port']
-
         return None
-
+    
     def build_graph(self):
+        """
+        Constrói um grafo da topologia de forma robusta, usando apenas os
+        dados de conexão para evitar inconsistências de identificadores.
+        """
         G = nx.Graph()
-
-        for switch in self.switches:
-            G.add_node(switch)
-
-        # Add host edges
+        if not self.hosts:
+            print("AVISO: Nenhum host encontrado. O grafo pode estar vazio.")
         for host in self.hosts:
-            switch = host['locations'][0]['elementId']
-            G.add_node(host['mac'])                     # add host node (e.g., MAC)
-            G.add_edge(host['mac'], switch)
-
+            try:
+                host_mac = host['mac']
+                switch_id = host['locations'][0]['elementId']
+                G.add_edge(host_mac, switch_id)
+            except (KeyError, IndexError):
+                print(f"AVISO: Host com dados malformados ignorado: {host}")
+        
+        if not self.links:
+            print("AVISO: Nenhum link entre switches encontrado. A rede pode estar particionada.")
         for link in self.links:
-            G.add_edge(link['src']['device'], link['dst']['device'])
-
+            try:
+                G.add_edge(link['src']['device'], link['dst']['device'])
+            except KeyError:
+                print(f"AVISO: Link com dados malformados ignorado: {link}")
         return G
 
-    def create_flow(self, from_hop, to_hop, final_dst):
-        """
-        Create a flow that goes from "from_hop" to "to_hop" when trying to reach "final_dst"
-
-        Args:
-            from_hop (str): Switch ID e.g. "of:0000000000000001"
-            to_hop (str): Switch ID or MAC ADDR e.g. "of:0000000000000002" or "00:00:00:00:00:A1"
-            final_dst (str): MAC ADDR e.g. "00:00:00:00:00:A1"
-        """
-        port = self.find_port(from_hop, to_hop)
-        if port is None:
-            print(f"ERRO: Porta não encontrada para {from_hop} -> {to_hop}")
-            return
-        
-        status, msg = self.api.push_flow(from_hop, final_dst, port)
-
-        if status != 201:
-            raise Exeption(msg)
-        #print(f"{status} -> {msg} for flow ({from_hop}, {to_hop}, {final_dst})")
-
     def install_all_routes(self):
+        """
+        Instala rotas unicast PROATIVAS e PERMANENTES, imitando a especificidade
+        das regras reativas do ONOS com IN_PORT + ETH_SRC + ETH_DST.
+        """
+        
         graph = self.build_graph()
-        print(f"Instalando rotas para {len(self.hosts)} hosts descobertos...")
+        unique_flows_final = set()
 
-        for src in self.hosts:
-            for tgt in self.hosts:
-                source = src['mac']
-                target = tgt['mac']
+        host_macs = [host['mac'] for host in self.hosts]
+        
+        for source_mac, target_mac in combinations(host_macs, 2):
+            try:
+                path = nx.shortest_path(graph, source=source_mac, target=target_mac)
+                
+                for i in range(1, len(path) - 1): 
+                    if path[i] in [s for s in self.switches]:  
+                        in_port = self.find_port(path[i], path[i-1])  
+                        out_port = self.find_port(path[i], path[i+1])  
+                        
+                        if in_port and out_port:
+                            unique_flows_final.add((
+                                path[i], in_port, out_port, 
+                                10, target_mac, source_mac
+                            ))
+                
+                reversed_path = list(reversed(path))
+                for i in range(1, len(reversed_path) - 1):
+                    if reversed_path[i] in [s for s in self.switches]:
+                        in_port = self.find_port(reversed_path[i], reversed_path[i-1])
+                        out_port = self.find_port(reversed_path[i], reversed_path[i+1])
+                        
+                        if in_port and out_port:
+                            unique_flows_final.add((
+                                reversed_path[i], in_port, out_port,
+                                10, source_mac, target_mac
+                            ))
 
-                if source == target:
-                    continue
+            except nx.NetworkXNoPath:
+                print(f"AVISO: Não há caminho entre {source_mac} e {target_mac}")
 
-                try:
-                    path = nx.shortest_path(graph, source=source, target=target)
-                    
-                    # Instala flows apenas nos switches do caminho
-                    for i in range(len(path) - 1):
-                        current = path[i]
-                        next_hop = path[i+1]
+        all_flows_unique = []
+        for switch, in_port, out_port, priority, dst, src in unique_flows_final:
+            all_flows_unique.append({
+                'switch_id': switch,
+                'output_port': out_port,
+                'priority': priority,
+                'isPermanent': True,
+                'eth_dst': dst,
+                'eth_src': src,
+                'in_port': in_port
+            })
 
-                        # Só cria flow se o hop atual é um switch
-                        if current in self.switches:
-                            self.create_flow(from_hop=current, to_hop=next_hop, final_dst=target)
-                            
-                except nx.NetworkXNoPath:
-                    print(f"Aviso: Não há caminho entre {source} e {target}")
-                    continue
-        print("Instalação de rotas concluída.")
+        if not all_flows_unique:
+            print("Nenhum flow para criar.")
+            return
 
-def main():
-    print("Installing routing intents for all host pairs...")
-    start = time.time()
-    router = Router()
-    router.install_all_routes()
-    total_time = time.time() - start
-    print(f"Time spend to generate routs {total_time}")
-    print("Done.")
-
-if __name__ == "__main__":
-    main()
-
+        start_time = time.time()
+        results = self.api.push_flows_batch(all_flows_unique)
+        success_count = sum(1 for status, _ in results if status == 201)
+        total_time = time.time() - start_time
+        
+        print(f"✓ Criação concluída: {success_count}/{len(all_flows_unique)} flows em {total_time:.2f}s")
