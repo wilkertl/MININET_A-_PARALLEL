@@ -27,6 +27,11 @@ EDGE_SWITCH_DEGREE_THRESHOLD = 2
 LOW_LINK_CHANCE = 0.20 
 HOST_BW_MBPS = 10.0
 
+# Configurações para experimento de sobrecarga Tower
+SPINE_BOTTLENECK_BW_MBPS = 30.0   # Gargalo intencional nos spines
+LEAF_SPINE_BW_MBPS = 50.0         # Links leaf-spine normais
+OVERLOAD_LINK_CHANCE = 0.3        # 30% chance de link ser gargalo
+
 def make_dpid(index):
     """Gera um DPID formatado com 16 dígitos hexadecimais"""
     return format(index, '016x')
@@ -56,7 +61,15 @@ class Tower( Topo ):
             self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
         ]
 
-        self.addLink(spines[0], spines[1])
+        # Link entre spines - GARGALO INTENCIONAL para experimento
+        spine_bw_mbps = SPINE_BOTTLENECK_BW_MBPS  # Sempre gargalo
+        print(f"INFO: Link spine s1-s2 com {spine_bw_mbps}Mbps (GARGALO)")
+        self.addLink(spines[0], spines[1], 
+                    bw=spine_bw_mbps,
+                    delay="1.0ms",
+                    loss=0.1,
+                    max_queue_size=50,  # Queue menor para gargalo
+                    use_htb=True)
 
         leafs = []
         for i in range(4):
@@ -64,12 +77,28 @@ class Tower( Topo ):
             leafs.append(leaf)
 
         for i, leaf in enumerate(leafs):
-            self.addLink(leaf, spines[0])
-            self.addLink(leaf, spines[1])
+            # Links leaf-spine com alguns gargalos estratégicos
+            for j, spine in enumerate(spines):
+                # Cria gargalos em alguns links específicos
+                if (i == 0 and j == 0) or (i == 2 and j == 1):  # l1-s1 e l3-s2 são gargalos
+                    link_bw_mbps = SPINE_BOTTLENECK_BW_MBPS
+                    queue_size = 50
+                    print(f"INFO: Link {leaf}-{spine} com {link_bw_mbps}Mbps (GARGALO)")
+                else:
+                    link_bw_mbps = LEAF_SPINE_BW_MBPS
+                    queue_size = 100
+                    
+                self.addLink(leaf, spine,
+                            bw=link_bw_mbps,
+                            delay="0.5ms",
+                            loss=0.1,
+                            max_queue_size=queue_size,
+                            use_htb=True)
 
+            # Links host-leaf com largura de banda de host
             for j in range(1, 6):
                 host = self.addHost(f'h{j + i * 5}')
-                self.addLink(host, leaf)
+                self.addLink(host, leaf, bw=HOST_BW_MBPS)
 
 class GmlTopo(Topo):
     """
