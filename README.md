@@ -105,6 +105,25 @@ The router will:
 - Calculate optimal paths using A* with geographic heuristics
 - Install flows in the network
 
+### ONOS API Management
+
+Direct ONOS controller management:
+
+```bash
+python src/onos_api.py
+```
+
+This will clean up all flows and inactive devices. You can also use the API programmatically:
+
+```python
+from onos_api import OnosApi
+
+api = OnosApi()
+hosts = api.get_hosts()
+switches = api.get_switches()
+api.delete_all_flows()
+```
+
 ## Project Structure
 
 ```
