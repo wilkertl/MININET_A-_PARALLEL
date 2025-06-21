@@ -1,85 +1,154 @@
 # MININET A* PARALLEL
 
-Este projeto implementa uma solução para visualização e análise de topologias de rede usando Mininet e Python.
+This project implements an A* algorithm-based routing solution for network topologies using Mininet, ONOS controller, and Python visualization tools.
 
-## Descrição
+## Description
 
-O projeto permite a visualização de topologias de rede através de um grafo interativo, onde:
-- Nós representam switches e hosts
-- Arestas representam conexões entre os elementos
-- A visualização é gerada a partir de arquivos GML (Graph Modeling Language)
+The project provides:
+- **A* routing algorithm** with real geographic distance heuristics
+- **Network topology visualization** from GML files
+- **ONOS controller integration** for SDN flow management
+- **Cross-platform compatibility** (Linux/Windows)
 
-## Requisitos
+Key features:
+- Nodes represent switches and hosts with geographic coordinates
+- Edges show bandwidth-based connections
+- Classification between edge switches (blue) and backbone switches (red)
+- Real-time topology updates via ONOS API
+
+## Requirements
 
 - Python 3.x
-- Dependências Python (instaladas via pip):
+- Python dependencies:
   ```
   networkx
   matplotlib
-  numpy
+  requests
+  python-dotenv
   ```
 
-## Instalação
+## Installation
 
-1. Clone o repositório:
+1. Clone the repository:
    ```bash
-   git clone [URL_DO_REPOSITORIO]
+   git clone https://github.com/wilkertl/MININET_A-_PARALLEL
    cd MININET_A-_PARALLEL
    ```
 
-2. Crie e ative um ambiente virtual (opcional, mas recomendado):
+2. Create and activate a virtual environment (recommended):
    ```bash
    python -m venv .venv
    source .venv/bin/activate  # Linux/Mac
-   # ou
+   # or
    .venv\Scripts\activate  # Windows
    ```
 
-3. Instale as dependências:
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-## Uso
+4. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env file with your ONOS controller settings
+   ```
 
-Para visualizar uma topologia de rede:
+## Configuration
+
+The project uses environment variables for configuration. Copy `.env.example` to `.env` and adjust the values:
 
 ```bash
-python src/render_topology.py examples/[arquivo_gml]
+# ONOS Controller Configuration
+ONOS_IP=127.0.0.1
+ONOS_PORT=8181
+ONOS_USER=onos
+ONOS_PASSWORD=rocks
+
+# Mininet Controllers (comma-separated list)
+CONTROLERS=172.17.0.2
 ```
 
-Por exemplo:
+## Usage
+
+### Network Visualization
+
+Visualize network topology from GML files:
+
 ```bash
-python src/render_topology.py examples/tata_nld.gml
+python src/render_topology.py [gml_file]
 ```
 
-A visualização será salva como `topology_visualization.png` no diretório de exemplos.
+Examples:
+```bash
+# Use default GML file (brasil.gml)
+python src/render_topology.py
 
-## Estrutura do Projeto
+# Custom GML file and output
+python src/render_topology.py custom_topology.gml --output my_network.png
+
+# Generate without showing plot window
+python src/render_topology.py --no-show
+```
+
+### A* Routing
+
+Run the A* routing algorithm with ONOS:
+
+```bash
+python src/router.py
+```
+
+The router will:
+- Load topology data from `topology_data.json`
+- Connect to ONOS controller (default: localhost:8181)
+- Calculate optimal paths using A* with geographic heuristics
+- Install flows in the network
+
+### ONOS API Management
+
+Direct ONOS controller management:
+
+```bash
+python src/onos_api.py
+```
+
+This will clean up all flows and inactive devices. You can also use the API programmatically:
+
+```python
+from onos_api import OnosApi
+
+api = OnosApi()
+hosts = api.get_hosts()
+switches = api.get_switches()
+api.delete_all_flows()
+```
+
+## Project Structure
 
 ```
 MININET_A-_PARALLEL/
-├── src/                    # Código fonte
-│   └── render_topology.py  # Script principal
-├── examples/               # Exemplos e recursos
-│   ├── tata_nld.gml       # Arquivo de exemplo GML
-│   └── topology_visualization.png
-├── docs/                   # Documentação
-├── tests/                  # Testes
-├── requirements.txt        # Dependências
-└── README.md              # Este arquivo
+├── src/
+│   ├── router.py           # A* routing implementation
+│   ├── network.py          # Mininet topology setup
+│   ├── app.py              # Network management utilities
+│   ├── onos_api.py         # ONOS controller API
+│   ├── render_topology.py  # Topology visualization
+│   ├── brasil.gml          # Brazil topology data
+│   └── topology_data.json  # Distance/bandwidth data
+├── .env.example            # Environment variables template
+├── requirements.txt        # Python dependencies
+└── README.md
 ```
 
-## Contribuição
+## Contributing
 
-Contribuições são bem-vindas! Para contribuir:
+1. Fork the project
+2. Create a feature branch (`git checkout -b feature/new-feature`)
+3. Commit changes (`git commit -m 'Add new feature'`)
+4. Push to branch (`git push origin feature/new-feature`)
+5. Open a Pull Request
 
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
+## License
 
-## Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes. 
+This project is under the MIT license. 
