@@ -16,26 +16,26 @@ class Router():
         self.update()
 
     def load_topology_data(self):
-        """Carrega dados de topologia do arquivo JSON"""
+        """Loads topology data from JSON file"""
         json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'topology_data.json')
         
         if not os.path.exists(json_path):
-            print("AVISO: Arquivo topology_data.json não encontrado.")
+            print("WARNING: topology_data.json file not found.")
             return None
             
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        print(f"✓ Dados carregados: {len(data.get('distances', {}))} distâncias, {len(data.get('bandwidth', {}))} links")
+        print(f"✓ Data loaded: {len(data.get('distances', {}))} distances, {len(data.get('bandwidth', {}))} links")
         return data
 
     def find_distance(self, node1, node2):
-        """Busca distância entre dois nós no JSON de topologia"""
+        """Searches for distance between two nodes in topology JSON"""
         if node1 == node2:
             return 0.0
             
         if not self.topology_data or 'distances' not in self.topology_data:
-            raise ValueError(f"Dados não disponíveis para {node1}-{node2}")
+            raise ValueError(f"Data not available for {node1}-{node2}")
         
         distances = self.topology_data['distances']
         possible_keys = [f"{node1}-{node2}", f"{node2}-{node1}"]
@@ -44,39 +44,39 @@ class Router():
             if key in distances:
                 return distances[key]
         
-        raise KeyError(f"Distância não encontrada entre {node1} e {node2}")
+        raise KeyError(f"Distance not found between {node1} and {node2}")
 
     def clean_dpid(self, dpid):
-        """Remove prefixo 'of:' do DPID se presente"""
+        """Removes 'of:' prefix from DPID if present"""
         return dpid[3:] if dpid.startswith('of:') else dpid
 
     def get_host_ip_from_mac(self, mac):
-        """Converte MAC do host para IP"""
+        """Converts host MAC to IP"""
         for host in self.hosts:
             if host['mac'] == mac:
                 return host['ipAddresses'][0]
         return None
 
     def heuristic_function(self, node1, node2):
-        """Função heurística para A* baseada na distância real"""
+        """Heuristic function for A* based on real distance"""
         search_node1 = self.get_host_ip_from_mac(node1) or self.clean_dpid(node1)
         search_node2 = self.get_host_ip_from_mac(node2) or self.clean_dpid(node2)
         return self.find_distance(search_node1, search_node2)
 
     def get_edge_weight(self, node1, node2):
-        """Calcula peso da aresta baseado na distância"""
+        """Calculates edge weight based on distance"""
         clean_node1 = self.clean_dpid(node1) if node1.startswith('of:') else node1
         clean_node2 = self.clean_dpid(node2) if node2.startswith('of:') else node2
         return self.find_distance(clean_node1, clean_node2)
 
     def update(self):
-        """Atualiza a topologia da rede a partir do ONOS"""
+        """Updates network topology from ONOS"""
         self.hosts = self.api.get_hosts()
         self.switches = self.api.get_switches()
         self.links = self.api.get_links()
 
     def find_port(self, src, dst):
-        """Encontra a porta de conexão entre dois dispositivos"""
+        """Finds connection port between two devices"""
         for link in self.links:
             if link['src']['device'] == src and link['dst']['device'] == dst:
                 return link['src']['port']
@@ -86,14 +86,14 @@ class Router():
         return None
     
     def build_graph(self):
-        """Constrói grafo da topologia com pesos baseados em distância"""
+        """Builds topology graph with distance-based weights"""
         if not self.topology_data:
-            raise ValueError("Dados de topologia obrigatórios para A*")
+            raise ValueError("Topology data required for A*")
         
         G = nx.Graph()
         
         if not self.hosts:
-            raise ValueError("Nenhum host encontrado no ONOS")
+            raise ValueError("No hosts found in ONOS")
         
         for host in self.hosts:
             host_mac = host['mac']
@@ -104,7 +104,7 @@ class Router():
             G.add_edge(host_mac, switch_id, weight=weight)
         
         if not self.links:
-            raise ValueError("Nenhum link entre switches encontrado")
+            raise ValueError("No switch links found")
         
         for link in self.links:
             src = link['src']['device']
@@ -117,11 +117,11 @@ class Router():
         return G
 
     def install_all_routes(self):
-        """Instala rotas usando A* com heurística baseada em distâncias reais"""
+        """Installs routes using A* with heuristic based on real distances"""
         graph = self.build_graph()
         unique_flows_final = set()
 
-        # Filtra hosts com IPs únicos
+        # Filter hosts with unique IPs
         unique_hosts = {}
         for host in self.hosts:
             host_ip = host['ipAddresses'][0]
@@ -129,7 +129,7 @@ class Router():
                 unique_hosts[host_ip] = host
         
         host_macs = [host['mac'] for host in unique_hosts.values()]
-        print(f"*** Calculando rotas A* para {len(host_macs)} hosts únicos...")
+        print(f"*** Calculating A* routes for {len(host_macs)} unique hosts...")
         
         for source_mac, target_mac in combinations(host_macs, 2):
             source_ip = self.get_host_ip_from_mac(source_mac)
@@ -146,7 +146,7 @@ class Router():
                 weight='weight'
             )
             
-            # Processa caminho normal e reverso
+            # Process normal and reverse paths
             for direction_path in [path, list(reversed(path))]:
                 dst_mac = target_mac if direction_path == path else source_mac
                 src_mac = source_mac if direction_path == path else target_mac
@@ -176,11 +176,11 @@ class Router():
         ]
 
         if not all_flows_unique:
-            raise ValueError("Nenhum flow foi gerado")
+            raise ValueError("No flows generated")
 
         start_time = time.time()
         results = self.api.push_flows_batch(all_flows_unique)
         success_count = sum(1 for status, _ in results if status == 201)
         total_time = time.time() - start_time
         
-        print(f"✓ Criação A* concluída: {success_count}/{len(all_flows_unique)} flows em {total_time:.2f}s")
+        print(f"A* creation completed: {success_count}/{len(all_flows_unique)} flows in {total_time:.2f}s")

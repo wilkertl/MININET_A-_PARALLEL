@@ -16,7 +16,7 @@ from threading import Lock
 load_dotenv()
 random.seed(42)
 
-# Configurações para topologia
+# Topology configurations
 MIN_BACKBONE_BW_MBPS = 30.0  
 MAX_BACKBONE_BW_MBPS = 100.0  
 PROPAGATION_SPEED_KM_PER_MS = 200  
@@ -27,11 +27,11 @@ LOW_LINK_CHANCE = 0.30
 HOST_BW_MBPS = 10.0
 
 def make_dpid(index):
-    """Gera um DPID formatado com 16 dígitos hexadecimais"""
+    """Generates a 16-digit hexadecimal formatted DPID"""
     return format(index, '016x')
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calcula a distancia geodesica em km"""
+    """Calculates geodesic distance in km"""
     R = 6371
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -40,7 +40,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def generate_network_topology_data(topo, net):
-    """Gera dados simplificados da topologia para arquivo JSON"""
+    """Generates simplified topology data for JSON file"""
     if hasattr(topo, 'get_topology_data'):
         return topo.get_topology_data(net)
     else:
@@ -60,7 +60,7 @@ class SimpleTopo(Topo):
         h2 = self.addHost('h2', ip='10.0.0.2')
         s1 = self.addSwitch('s1', dpid=make_dpid(1), protocols='OpenFlow13')
 
-        # Links com bandwidth e delay baseado na distância
+        # Links with bandwidth and distance-based delay
         for host_ip, host in [("10.0.0.1", h1), ("10.0.0.2", h2)]:
             dist = haversine_distance(
                 positions[host_ip]["lat"], positions[host_ip]["lon"],
@@ -70,7 +70,7 @@ class SimpleTopo(Topo):
             self.addLink(host, s1, bw=HOST_BW_MBPS, delay=f"{delay:.2f}ms")
             self.topology_data["bandwidth"][f"{host_ip}-{make_dpid(1)}"] = HOST_BW_MBPS
         
-        # Calcula distâncias
+        # Calculate distances
         nodes = ["10.0.0.1", "10.0.0.2", make_dpid(1)]
         for i, node1 in enumerate(nodes):
             for j, node2 in enumerate(nodes):
@@ -86,7 +86,7 @@ class Tower(Topo):
     def build(self):
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
-        # Posições dos switches
+        # Switch positions
         dpid_positions = {
             make_dpid(1): {"lat": -23.5505, "lon": -46.6333},  # s1
             make_dpid(2): {"lat": -22.9068, "lon": -43.1729},  # s2
@@ -96,7 +96,7 @@ class Tower(Topo):
             make_dpid(14): {"lat": -22.8305, "lon": -43.2192}, # l4
         }
         
-        # Posições dos hosts
+        # Host positions
         host_positions = {}
         for i in range(1, 21):
             leaf_idx = ((i-1) // 5) + 1
@@ -114,13 +114,13 @@ class Tower(Topo):
         
         all_positions = {**dpid_positions, **host_positions}
         
-        # Constroi spines
+        # Build spines
         spines = [
             self.addSwitch('s1', dpid=make_dpid(1), protocols="OpenFlow13"),
             self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
         ]
 
-        # Link entre spines com gargalo
+        # Spine link with bottleneck
         s1_s2_dist = haversine_distance(
             dpid_positions[make_dpid(1)]["lat"], dpid_positions[make_dpid(1)]["lon"],
             dpid_positions[make_dpid(2)]["lat"], dpid_positions[make_dpid(2)]["lon"]
@@ -135,13 +135,13 @@ class Tower(Topo):
                     use_htb=True)
         self.topology_data["bandwidth"][f"{make_dpid(1)}-{make_dpid(2)}"] = MIN_BACKBONE_BW_MBPS
 
-        # Constroi leafs
+        # Build leafs
         leafs = []
         for i in range(4):
             leaf = self.addSwitch(f'l{i+1}', dpid=make_dpid(11 + i), protocols="OpenFlow13")
             leafs.append(leaf)
 
-        # Links leaf-spine
+        # Leaf-spine links
         for i, leaf in enumerate(leafs):
             leaf_dpid = make_dpid(11 + i)
             for j, spine in enumerate(spines):
@@ -153,7 +153,7 @@ class Tower(Topo):
                 )
                 leaf_spine_delay = leaf_spine_dist / PROPAGATION_SPEED_KM_PER_MS
                 
-                # Gargalos específicos
+                # Specific bottlenecks
                 if (i == 0 and j == 0) or (i == 2 and j == 1):
                     link_bw_mbps = MIN_BACKBONE_BW_MBPS
                     queue_size = 50
@@ -169,7 +169,7 @@ class Tower(Topo):
                             use_htb=True)
                 self.topology_data["bandwidth"][f"{leaf_dpid}-{spine_dpid}"] = link_bw_mbps
 
-            # Links host-leaf
+            # Host-leaf links
             for j in range(1, 6):
                 host_num = j + i * 5
                 host_ip = f'10.0.0.{host_num}'
@@ -186,7 +186,7 @@ class Tower(Topo):
                            delay=f"{host_leaf_delay:.2f}ms")
                 self.topology_data["bandwidth"][f"{host_ip}-{leaf_dpid}"] = HOST_BW_MBPS
         
-        # Calcula todas as distâncias
+        # Calculate all distances
         all_nodes = list(all_positions.keys())
         for node1 in all_nodes:
             for node2 in all_nodes:
@@ -199,17 +199,17 @@ class Tower(Topo):
         return self.topology_data
 
 class GmlTopo(Topo):
-    """Topologia do Mininet a partir de arquivo GML"""
+    """Mininet topology from GML file"""
     def build(self, gml_file):
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
-        info("*** Lendo topologia do arquivo: {}\n".format(gml_file))
+        info("*** Reading topology from file: {}\n".format(gml_file))
         try:
             G = nx.read_gml(gml_file, label='id')
         except Exception:
             G = nx.read_gml(gml_file, label='label')
 
-        info("*** Adicionando switches...\n")
+        info("*** Adding switches...\n")
         switches = {}
         self.edge_switches = []
         self.backbone_switches = []
@@ -222,7 +222,7 @@ class GmlTopo(Topo):
             switches[node_id] = switch_ref
             self.node_to_dpid[node_id] = dpid
 
-        info("*** Classificando switches...\n")
+        info("*** Classifying switches...\n")
         for node_id, switch_ref in switches.items():
             switch_degree = G.degree(node_id)
             switch_name = switch_ref if isinstance(switch_ref, str) else str(switch_ref)
@@ -238,8 +238,8 @@ class GmlTopo(Topo):
             else:
                 self.backbone_switches.append(switch_info)
         
-        # Links entre switches
-        info("*** Adicionando links entre switches...\n")
+        # Switch links
+        info("*** Adding switch links...\n")
         for u, v, edge_data in G.edges(data=True):
             switch_u = switches[u]
             switch_v = switches[v]
@@ -259,8 +259,8 @@ class GmlTopo(Topo):
                         use_htb=True)
             self.topology_data["bandwidth"][f"{u_dpid}-{v_dpid}"] = bw_mbps
         
-        # Hosts nos edge switches
-        info("*** Adicionando hosts aos edge switches...\n")
+        # Hosts on edge switches
+        info("*** Adding hosts to edge switches...\n")
         for edge_switch_info in self.edge_switches:
             switch_name = edge_switch_info['name']
             switch_dpid = self.node_to_dpid[edge_switch_info['id']]
@@ -276,7 +276,7 @@ class GmlTopo(Topo):
                            delay="0.1ms")
                 self.topology_data["bandwidth"][f"{host_ip}-{switch_dpid}"] = HOST_BW_MBPS
         
-        # Distâncias dos edges do GML
+        # GML edge distances
         for u, v, edge_data in G.edges(data=True):
             u_dpid = self.node_to_dpid[u]
             v_dpid = self.node_to_dpid[v]
@@ -284,7 +284,7 @@ class GmlTopo(Topo):
             self.topology_data["distances"][f"{u_dpid}-{v_dpid}"] = distance_km
             self.topology_data["distances"][f"{v_dpid}-{u_dpid}"] = distance_km
         
-        # Distâncias baseadas em coordenadas
+        # Coordinate-based distances
         switch_positions = {}
         for node_id, node_data in G.nodes(data=True):
             if 'lat' in node_data and 'lon' in node_data:
@@ -323,8 +323,8 @@ def run(topo):
         host.lock = Lock()
         host.cmd("ping -c 1 10.0.0.1 &")
 
-    # Gera arquivo JSON com dados da topologia
-    print("\n*** Gerando arquivo de dados da topologia...")
+    # Generate JSON file with topology data
+    print("\n*** Generating topology data file...")
     topology_data = generate_network_topology_data(topo, net)
     
     json_filename = "topology_data.json"
@@ -333,17 +333,17 @@ def run(topo):
     try:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(topology_data, f, indent=2, ensure_ascii=False)
-        print(f"*** Dados salvos em: {json_filename}")
-        print(f"    - Distâncias: {len(topology_data['distances'])}")
+        print(f"*** Data saved to: {json_filename}")
+        print(f"    - Distances: {len(topology_data['distances'])}")
         print(f"    - Links: {len(topology_data['bandwidth'])}")
     except Exception as e:
-        print(f"*** Erro ao salvar dados: {e}")
+        print(f"*** Error saving data: {e}")
 
     if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
-        info("*** RESUMO DA TOPOLOGIA ***\n")
-        info("Controladores: {}\n".format(controllers))
-        info("Switches BORDA: {}\n".format([s['name'] for s in topo.edge_switches]))
-        info("Switches BACKBONE: {}\n".format([s['name'] for s in topo.backbone_switches]))
+        info("*** TOPOLOGY SUMMARY ***\n")
+        info("Controllers: {}\n".format(controllers))
+        info("EDGE switches: {}\n".format([s['name'] for s in topo.edge_switches]))
+        info("BACKBONE switches: {}\n".format([s['name'] for s in topo.backbone_switches]))
         info("Total hosts: {}\n".format(len(net.hosts)))
 
     return net
@@ -351,7 +351,7 @@ def run(topo):
 if __name__ == '__main__':
     setLogLevel('info')
     net = run(Tower())
-    info("*** Iniciando CLI...\n")
+    info("*** Starting CLI...\n")
     CLI(net)
-    info("*** Parando a rede...\n")
+    info("*** Stopping network...\n")
     net.stop()
