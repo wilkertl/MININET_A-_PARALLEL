@@ -26,7 +26,7 @@ class Router():
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        print(f"✓ Data loaded: {len(data.get('distances', {}))} distances, {len(data.get('bandwidth', {}))} links")
+        print(f"Data loaded: {len(data.get('distances', {}))} distances, {len(data.get('bandwidth', {}))} links")
         return data
 
     def find_distance(self, node1, node2):
