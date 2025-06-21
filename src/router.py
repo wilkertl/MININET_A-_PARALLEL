@@ -28,7 +28,7 @@ class Router():
         for host in self.hosts:
             if host['mac'] == dst and host['locations'][0]['elementId'] == src:
                 return host['locations'][0]['port']
-                return None
+        return None
     
     def build_graph(self):
         """
