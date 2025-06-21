@@ -46,7 +46,7 @@ class OnosApi():
         return r.status_code, r.text
 
     def push_flow(self, switch_id, output_port, priority, eth_type=None, eth_dst=None, eth_src=None, in_port=None):
-        """Envia uma regra de fluxo para um dispositivo específico no ONOS"""
+        """Sends a flow rule to a specific device in ONOS"""
         try:
             url = f"{self.BASE_URL}/flows/{switch_id}"
 
@@ -79,11 +79,11 @@ class OnosApi():
 
             return response.status_code, response.text
         except Exception as e:
-            print(f"Erro ao enviar flow: {e}")
-            return 500, f"Erro: {e}"
+            print(f"Error sending flow: {e}")
+            return 500, f"Error: {e}"
     
     def push_flows_batch(self, flows_data):
-        """Envia múltiplos flows em massa"""
+        """Sends multiple flows in batch"""
         results = []
         created_count = 0
         for i, flow in enumerate(flows_data):
@@ -101,13 +101,13 @@ class OnosApi():
             if status == 201:
                 created_count += 1
             elif status != 201:
-                print(f"Flow {i+1} falhou ({status}): {msg[:100]}")
+                print(f"Flow {i+1} failed ({status}): {msg[:100]}")
             
-        print(f"✓ Flows processados: {created_count} criados com sucesso")
+        print(f"✓ Flows processed: {created_count} created successfully")
         return results
     
     def delete_flows_batch(self, flows_to_delete):
-        """Deleta múltiplos flows em massa usando endpoint batch do ONOS"""
+        """Deletes multiple flows in batch using ONOS batch endpoint"""
         if not flows_to_delete:
             return 200, "No flows to delete"
             
@@ -128,7 +128,7 @@ class OnosApi():
             )
             return response.status_code, response.text
         except Exception as e:
-            return 500, f"Erro: {e}"
+            return 500, f"Error: {e}"
 
     def get_topology(self):
         url = f"{self.BASE_URL}/topology"
