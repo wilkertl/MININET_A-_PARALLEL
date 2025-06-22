@@ -12,7 +12,7 @@ try:
     from network import *
     MININET_AVAILABLE = True
 except ImportError:
-    print("Mininet not detected - local network commands disabled")
+    pass
 
 def unique_host_pairs(hosts):
     random.shuffle(hosts)
@@ -31,6 +31,7 @@ class App():
             {"name": "help", "function": self.help},
             {"name": "exit", "function": self.exit_app},
             {"name": "create_routes", "function": self.create_routes},
+            {"name": "create_routes_parallel", "function": self.create_routes_parallel},
             {"name": "delete_routes", "function": self.delete_routes},
             {"name": "render_topology", "function": self.render_topology},
         ]
@@ -71,24 +72,21 @@ class App():
             self.api.delete_all_flows()
             self.api.delete_inactive_devices()
             return
-            
-        print("Cleaning complete network...")
+        
         self.api.delete_all_flows()
 
         if self.net:
             self.net.stop()
 
+        try:
+            subprocess.run(['sudo', 'mn', '-c'], check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError:
+            pass
+        except FileNotFoundError:
+            pass
+        
         self.net = None
         self.api.delete_inactive_devices()
-        
-        try:
-            print("Running deep Mininet cleanup...")
-            subprocess.run(['sudo', 'mn', '-c'], check=True, capture_output=True, text=True)
-            print("Cleanup completed!")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Mininet cleanup error: {e}")
-        except FileNotFoundError:
-            print("Warning: 'mn' command not found")
 
     def simple_net(self):
         if not MININET_AVAILABLE:
@@ -102,7 +100,7 @@ class App():
             print("Command requires Mininet!")
             return
         self.clean_network()
-        self.net = run(Tower())
+        self.net = run(Tower(num_spines=8, num_leafs=2, hosts_per_leaf=8))
 
     def gml_net(self):
         if not MININET_AVAILABLE:
@@ -117,19 +115,25 @@ class App():
             print(cmd["name"])
 
     def exit_app(self):
+        if MININET_AVAILABLE:
+            self.clean_network()
         exit(0)
 
     def create_routes(self):
-        print("Creating complete routes...")
         start = time.time()
         self.router.update()
         self.router.install_all_routes()
         total_time = time.time() - start
         print(f"Completed. Time spent: {total_time:.2f}s")
 
-    def delete_routes(self):
-        print("Deleting complete routes...")
+    def create_routes_parallel(self):
+        start = time.time()
         self.router.update()
+        self.router.install_all_routes_parallel()
+        total_time = time.time() - start
+        print(f"Completed. Time spent: {total_time:.2f}s")
+
+    def delete_routes(self):
         self.api.delete_all_flows()
         print("Completed.")
 
@@ -181,7 +185,7 @@ class App():
         
     def render_topology(self):
         render_topology()
-        
+
 def main():
     app = App()
     app.main_loop()
