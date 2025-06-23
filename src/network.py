@@ -27,11 +27,11 @@ LOW_LINK_CHANCE = 0.30
 HOST_BW_MBPS = 10.0
 
 def make_dpid(index):
-    """Generates a 16-digit hexadecimal formatted DPID"""
+    """Generate a 16-digit hexadecimal formatted DPID"""
     return format(index, '016x')
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calculates geodesic distance in km"""
+    """Calculate geodesic distance in km"""
     R = 6371
     dLat = math.radians(lat2 - lat1)
     dLon = math.radians(lon2 - lon1)
@@ -40,7 +40,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def generate_network_topology_data(topo, net):
-    """Generates simplified topology data for JSON file"""
+    """Generate simplified topology data for JSON file"""
     if hasattr(topo, 'get_topology_data'):
         return topo.get_topology_data(net)
     else:
@@ -52,16 +52,15 @@ class SimpleTopo(Topo):
         
         positions = {
             make_dpid(1): {"lat": -23.5505, "lon": -46.6333},
-            "10.0.0.1": {"lat": -23.5515, "lon": -46.6343},
-            "10.0.0.2": {"lat": -23.5495, "lon": -46.6323}
+            "10.0.0.2": {"lat": -23.5515, "lon": -46.6343},
+            "10.0.0.3": {"lat": -23.5495, "lon": -46.6323}
         }
         
-        h1 = self.addHost('h1', ip='10.0.0.1')
-        h2 = self.addHost('h2', ip='10.0.0.2')
+        h1 = self.addHost('h1', ip='10.0.0.2')
+        h2 = self.addHost('h2', ip='10.0.0.3')
         s1 = self.addSwitch('s1', dpid=make_dpid(1), protocols='OpenFlow13')
 
-        # Links with bandwidth and distance-based delay
-        for host_ip, host in [("10.0.0.1", h1), ("10.0.0.2", h2)]:
+        for host_ip, host in [("10.0.0.2", h1), ("10.0.0.3", h2)]:
             dist = haversine_distance(
                 positions[host_ip]["lat"], positions[host_ip]["lon"],
                 positions[make_dpid(1)]["lat"], positions[make_dpid(1)]["lon"]
@@ -70,43 +69,89 @@ class SimpleTopo(Topo):
             self.addLink(host, s1, bw=HOST_BW_MBPS, delay=f"{delay:.2f}ms")
             self.topology_data["bandwidth"][f"{host_ip}-{make_dpid(1)}"] = HOST_BW_MBPS
         
-        # Calculate distances
-        nodes = ["10.0.0.1", "10.0.0.2", make_dpid(1)]
-        for i, node1 in enumerate(nodes):
-            for j, node2 in enumerate(nodes):
-                if i != j:
-                    pos1, pos2 = positions[node1], positions[node2]
-                    dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
-                    self.topology_data["distances"][f"{node1}-{node2}"] = dist
+        switch_dpid = make_dpid(1)
+        host_ips = ["10.0.0.2", "10.0.0.3"]
+        
+        for host_ip in host_ips:
+            dist = haversine_distance(
+                positions[host_ip]["lat"], positions[host_ip]["lon"],
+                positions[switch_dpid]["lat"], positions[switch_dpid]["lon"]
+            )
+            self.topology_data["distances"][f"{host_ip}-{switch_dpid}"] = dist
+        
+        for host1_ip in host_ips:
+            for host2_ip in host_ips:
+                if host1_ip != host2_ip:
+                    self.topology_data["distances"][f"{host1_ip}-{host2_ip}"] = 0.1
 
     def get_topology_data(self, net):
         return self.topology_data
 
 class Tower(Topo):
-    def build(self):
+    def build(self, num_spines=2, num_leafs=4, hosts_per_leaf=5):
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
-        # Switch positions
-        dpid_positions = {
-            make_dpid(1): {"lat": -23.5505, "lon": -46.6333},  # s1
-            make_dpid(2): {"lat": -22.9068, "lon": -43.1729},  # s2
-            make_dpid(11): {"lat": -23.5320, "lon": -46.6414}, # l1
-            make_dpid(12): {"lat": -23.5689, "lon": -46.6239}, # l2
-            make_dpid(13): {"lat": -22.9519, "lon": -43.2105}, # l3
-            make_dpid(14): {"lat": -22.8305, "lon": -43.2192}, # l4
-        }
+        base_spine_positions = [
+            {"lat": -23.5505, "lon": -46.6333},  # São Paulo
+            {"lat": -22.9068, "lon": -43.1729},  # Rio de Janeiro  
+            {"lat": -15.7801, "lon": -47.9292},  # Brasília
+            {"lat": -19.9167, "lon": -43.9345},  # Belo Horizonte
+            {"lat": -8.0476, "lon": -34.8770},   # Recife
+            {"lat": -3.7319, "lon": -38.5267},   # Fortaleza
+        ]
         
-        # Host positions
+        base_leaf_positions = [
+            {"lat": -23.5320, "lon": -46.6414}, # São Paulo área
+            {"lat": -23.5689, "lon": -46.6239}, # São Paulo área 
+            {"lat": -22.9519, "lon": -43.2105}, # Rio área
+            {"lat": -22.8305, "lon": -43.2192}, # Rio área
+            {"lat": -15.7500, "lon": -47.8800}, # Brasília área
+            {"lat": -15.8100, "lon": -48.0000}, # Brasília área
+            {"lat": -19.8900, "lon": -43.9000}, # BH área
+            {"lat": -19.9400, "lon": -43.9700}, # BH área
+        ]
+        
+        dpid_positions = {}
+        
+        for i in range(num_spines):
+            spine_dpid = make_dpid(i + 1)
+            if i < len(base_spine_positions):
+                dpid_positions[spine_dpid] = base_spine_positions[i]
+            else:
+                base_pos = base_spine_positions[i % len(base_spine_positions)]
+                dpid_positions[spine_dpid] = {
+                    "lat": base_pos["lat"] + random.uniform(-2, 2),
+                    "lon": base_pos["lon"] + random.uniform(-2, 2)
+                }
+        
+        for i in range(num_leafs):
+            leaf_dpid = make_dpid(10 + i + 1)
+            if i < len(base_leaf_positions):
+                dpid_positions[leaf_dpid] = base_leaf_positions[i]
+            else:
+                spine_idx = i % num_spines
+                spine_dpid = make_dpid(spine_idx + 1)
+                spine_pos = dpid_positions[spine_dpid]
+                dpid_positions[leaf_dpid] = {
+                    "lat": spine_pos["lat"] + random.uniform(-0.5, 0.5),
+                    "lon": spine_pos["lon"] + random.uniform(-0.5, 0.5)
+                }
+        
         host_positions = {}
-        for i in range(1, 21):
-            leaf_idx = ((i-1) // 5) + 1
-            leaf_dpid = make_dpid(10 + leaf_idx)
+        total_hosts = num_leafs * hosts_per_leaf
+        
+        for i in range(1, total_hosts + 1):
+            leaf_idx = ((i-1) // hosts_per_leaf)
+            leaf_dpid = make_dpid(10 + leaf_idx + 1)
             leaf_pos = dpid_positions[leaf_dpid]
             
             lat_offset = random.uniform(-0.01, 0.01) 
             lon_offset = random.uniform(-0.01, 0.01)
             
-            host_ip = f"10.0.0.{i}"
+            subnet = (i - 1) // 253
+            host_num = ((i - 1) % 253) + 2
+            host_ip = f"10.0.{subnet}.{host_num}"
+            
             host_positions[host_ip] = {
                 "lat": leaf_pos["lat"] + lat_offset,
                 "lon": leaf_pos["lon"] + lon_offset
@@ -114,34 +159,39 @@ class Tower(Topo):
         
         all_positions = {**dpid_positions, **host_positions}
         
-        # Build spines
-        spines = [
-            self.addSwitch('s1', dpid=make_dpid(1), protocols="OpenFlow13"),
-            self.addSwitch('s2', dpid=make_dpid(2), protocols="OpenFlow13")
-        ]
+        spines = []
+        for i in range(num_spines):
+            spine_name = f's{i+1}'
+            spine_dpid = make_dpid(i + 1)
+            spine = self.addSwitch(spine_name, dpid=spine_dpid, protocols="OpenFlow13")
+            spines.append(spine)
 
-        # Spine link with bottleneck
-        s1_s2_dist = haversine_distance(
-            dpid_positions[make_dpid(1)]["lat"], dpid_positions[make_dpid(1)]["lon"],
-            dpid_positions[make_dpid(2)]["lat"], dpid_positions[make_dpid(2)]["lon"]
-        )
-        s1_s2_delay = s1_s2_dist / PROPAGATION_SPEED_KM_PER_MS
-        
-        self.addLink(spines[0], spines[1], 
-                    bw=MIN_BACKBONE_BW_MBPS,
-                    delay=f"{s1_s2_delay:.2f}ms",
-                    loss=0.1,
-                    max_queue_size=50,
-                    use_htb=True)
-        self.topology_data["bandwidth"][f"{make_dpid(1)}-{make_dpid(2)}"] = MIN_BACKBONE_BW_MBPS
+        for i in range(num_spines):
+            for j in range(i + 1, num_spines):
+                spine1_dpid = make_dpid(i + 1)
+                spine2_dpid = make_dpid(j + 1)
+                
+                dist = haversine_distance(
+                    dpid_positions[spine1_dpid]["lat"], dpid_positions[spine1_dpid]["lon"],
+                    dpid_positions[spine2_dpid]["lat"], dpid_positions[spine2_dpid]["lon"]
+                )
+                delay = dist / PROPAGATION_SPEED_KM_PER_MS
+                
+                self.addLink(spines[i], spines[j], 
+                            bw=MIN_BACKBONE_BW_MBPS,
+                            delay=f"{delay:.2f}ms",
+                            loss=0.1,
+                            max_queue_size=50,
+                            use_htb=True)
+                self.topology_data["bandwidth"][f"{spine1_dpid}-{spine2_dpid}"] = MIN_BACKBONE_BW_MBPS
 
-        # Build leafs
         leafs = []
-        for i in range(4):
-            leaf = self.addSwitch(f'l{i+1}', dpid=make_dpid(11 + i), protocols="OpenFlow13")
+        for i in range(num_leafs):
+            leaf_name = f'l{i+1}'
+            leaf_dpid = make_dpid(10 + i + 1)
+            leaf = self.addSwitch(leaf_name, dpid=leaf_dpid, protocols="OpenFlow13")
             leafs.append(leaf)
 
-        # Leaf-spine links
         for i, leaf in enumerate(leafs):
             leaf_dpid = make_dpid(11 + i)
             for j, spine in enumerate(spines):
@@ -153,7 +203,6 @@ class Tower(Topo):
                 )
                 leaf_spine_delay = leaf_spine_dist / PROPAGATION_SPEED_KM_PER_MS
                 
-                # Specific bottlenecks
                 if (i == 0 and j == 0) or (i == 2 and j == 1):
                     link_bw_mbps = MIN_BACKBONE_BW_MBPS
                     queue_size = 50
@@ -169,11 +218,14 @@ class Tower(Topo):
                             use_htb=True)
                 self.topology_data["bandwidth"][f"{leaf_dpid}-{spine_dpid}"] = link_bw_mbps
 
-            # Host-leaf links
-            for j in range(1, 6):
-                host_num = j + i * 5
-                host_ip = f'10.0.0.{host_num}'
-                host = self.addHost(f'h{host_num}', ip=host_ip)
+            for j in range(hosts_per_leaf):
+                host_global_num = (i * hosts_per_leaf) + j + 1
+                
+                subnet = (host_global_num - 1) // 253
+                host_num = ((host_global_num - 1) % 253) + 2
+                host_ip = f'10.0.{subnet}.{host_num}'
+                
+                host = self.addHost(f'h{host_global_num}', ip=host_ip)
                 
                 host_leaf_dist = haversine_distance(
                     host_positions[host_ip]["lat"], host_positions[host_ip]["lon"],
@@ -186,14 +238,55 @@ class Tower(Topo):
                            delay=f"{host_leaf_delay:.2f}ms")
                 self.topology_data["bandwidth"][f"{host_ip}-{leaf_dpid}"] = HOST_BW_MBPS
         
-        # Calculate all distances
-        all_nodes = list(all_positions.keys())
-        for node1 in all_nodes:
-            for node2 in all_nodes:
-                if node1 != node2:
-                    pos1, pos2 = all_positions[node1], all_positions[node2]
-                    dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
-                    self.topology_data["distances"][f"{node1}-{node2}"] = dist
+        for i in range(1, total_hosts + 1):
+            leaf_idx = ((i-1) // hosts_per_leaf)
+            leaf_dpid = make_dpid(10 + leaf_idx + 1)
+            subnet = (i - 1) // 253
+            host_num = ((i - 1) % 253) + 2
+            host_ip = f"10.0.{subnet}.{host_num}"
+            
+            host_leaf_dist = haversine_distance(
+                host_positions[host_ip]["lat"], host_positions[host_ip]["lon"],
+                dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"]
+            )
+            self.topology_data["distances"][f"{host_ip}-{leaf_dpid}"] = host_leaf_dist
+        
+        for i in range(num_spines):
+            for j in range(i + 1, num_spines):
+                spine1_dpid = make_dpid(i + 1)
+                spine2_dpid = make_dpid(j + 1)
+                dist = haversine_distance(
+                    dpid_positions[spine1_dpid]["lat"], dpid_positions[spine1_dpid]["lon"],
+                    dpid_positions[spine2_dpid]["lat"], dpid_positions[spine2_dpid]["lon"]
+                )
+                self.topology_data["distances"][f"{spine1_dpid}-{spine2_dpid}"] = dist
+        
+        for i in range(num_leafs):
+            leaf_dpid = make_dpid(11 + i)
+            for j in range(num_spines):
+                spine_dpid = make_dpid(1 + j)
+                dist = haversine_distance(
+                    dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"],
+                    dpid_positions[spine_dpid]["lat"], dpid_positions[spine_dpid]["lon"]
+                )
+                self.topology_data["distances"][f"{leaf_dpid}-{spine_dpid}"] = dist
+        
+        for i in range(num_leafs):
+            leaf_hosts = []
+            start_host = i * hosts_per_leaf + 1
+            end_host = start_host + hosts_per_leaf
+            
+            for h in range(start_host, end_host):
+                if h <= total_hosts:
+                    subnet = (h - 1) // 253
+                    host_num = ((h - 1) % 253) + 2
+                    host_ip = f"10.0.{subnet}.{host_num}"
+                    leaf_hosts.append(host_ip)
+            
+            for j, host1_ip in enumerate(leaf_hosts):
+                for k, host2_ip in enumerate(leaf_hosts):
+                    if j < k:
+                        self.topology_data["distances"][f"{host1_ip}-{host2_ip}"] = 0.1
 
     def get_topology_data(self, net):
         return self.topology_data
@@ -203,103 +296,108 @@ class GmlTopo(Topo):
     def build(self, gml_file):
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
-        info("*** Reading topology from file: {}\n".format(gml_file))
-        try:
-            G = nx.read_gml(gml_file, label='id')
-        except Exception:
-            G = nx.read_gml(gml_file, label='label')
-
-        info("*** Adding switches...\n")
+        if not os.path.exists(gml_file):
+            raise FileNotFoundError(f"GML file '{gml_file}' not found.")
+        
+        G = nx.read_gml(gml_file, label='id')
+        
+        switch_nodes = [n for n, d in G.nodes(data=True) if 'Internal' not in d.get('label', '')][:100]
+        backbone_nodes = [n for n, d in G.nodes(data=True) if d.get('label', '').startswith('backbone')]
+        edge_nodes = [n for n in switch_nodes if n not in backbone_nodes][:50]
+        
         switches = {}
-        self.edge_switches = []
-        self.backbone_switches = []
-        self.node_to_dpid = {}
-        
-        for idx, (node_id, node_data) in enumerate(G.nodes(data=True)):
-            switch_name = str(node_id)
-            dpid = make_dpid(idx + 1)
-            switch_ref = self.addSwitch(switch_name, dpid=dpid, protocols='OpenFlow13')
-            switches[node_id] = switch_ref
-            self.node_to_dpid[node_id] = dpid
-
-        info("*** Classifying switches...\n")
-        for node_id, switch_ref in switches.items():
-            switch_degree = G.degree(node_id)
-            switch_name = switch_ref if isinstance(switch_ref, str) else str(switch_ref)
-            
-            switch_info = {
-                'id': node_id,
+        for i, node in enumerate(switch_nodes):
+            switch_name = f's{i+1}'
+            switch_dpid = make_dpid(i + 1)
+            switches[node] = {
                 'name': switch_name,
-                'degree': switch_degree
+                'dpid': switch_dpid,
+                'mininet_obj': self.addSwitch(switch_name, dpid=switch_dpid, protocols="OpenFlow13")
             }
-            
-            if switch_degree <= EDGE_SWITCH_DEGREE_THRESHOLD:
-                self.edge_switches.append(switch_info)
-            else:
-                self.backbone_switches.append(switch_info)
         
-        # Switch links
-        info("*** Adding switch links...\n")
-        for u, v, edge_data in G.edges(data=True):
-            switch_u = switches[u]
-            switch_v = switches[v]
-            u_dpid = self.node_to_dpid[u]
-            v_dpid = self.node_to_dpid[v]
-            
-            distance_km = edge_data['dist']
-            delay_ms = distance_km / PROPAGATION_SPEED_KM_PER_MS
-            
-            bw_mbps = MIN_BACKBONE_BW_MBPS if random.uniform(0, 1) < LOW_LINK_CHANCE else MAX_BACKBONE_BW_MBPS
-            
-            self.addLink(switch_u, switch_v, 
-                        bw=bw_mbps,
-                        delay=f"{delay_ms:.2f}ms",
-                        loss=0.1,
-                        max_queue_size=100,
-                        use_htb=True)
-            self.topology_data["bandwidth"][f"{u_dpid}-{v_dpid}"] = bw_mbps
+        for src, dst in G.edges():
+            if src in switches and dst in switches:
+                src_dpid = switches[src]['dpid']
+                dst_dpid = switches[dst]['dpid']
+                
+                bw = random.uniform(MIN_BACKBONE_BW_MBPS, MAX_BACKBONE_BW_MBPS)
+                delay = random.uniform(1, 20)
+                
+                self.addLink(
+                    switches[src]['mininet_obj'], 
+                    switches[dst]['mininet_obj'],
+                    bw=bw, 
+                    delay=f"{delay:.2f}ms",
+                    loss=0.1,
+                    use_htb=True
+                )
+                
+                self.topology_data["bandwidth"][f"{src_dpid}-{dst_dpid}"] = bw
         
-        # Hosts on edge switches
-        info("*** Adding hosts to edge switches...\n")
-        for edge_switch_info in self.edge_switches:
-            switch_name = edge_switch_info['name']
-            switch_dpid = self.node_to_dpid[edge_switch_info['id']]
-            switch_ref = switches[edge_switch_info['id']]
+        node_positions = {}
+        for node, data in G.nodes(data=True):
+            if 'Longitude' in data and 'Latitude' in data:
+                try:
+                    lon = float(data['Longitude'])
+                    lat = float(data['Latitude'])
+                    node_positions[node] = {"lat": lat, "lon": lon}
+                except ValueError:
+                    continue
+        
+        if not node_positions:
+            for i, node in enumerate(G.nodes()):
+                angle = 2 * math.pi * i / len(G.nodes())
+                lat = -15.0 + 10 * math.cos(angle)
+                lon = -47.0 + 10 * math.sin(angle)
+                node_positions[node] = {"lat": lat, "lon": lon}
+        
+        edge_switches = [(node, switches[node]) for node in edge_nodes if node in switches][:MIN_HOSTS_PER_EDGE_SWITCH * 10]
+        
+        host_counter = 1
+        host_to_switch_mapping = {}
+        
+        for node, switch_info in edge_switches:
             num_hosts = random.randint(MIN_HOSTS_PER_EDGE_SWITCH, MAX_HOSTS_PER_EDGE_SWITCH)
-            
-            for j in range(num_hosts):
-                host_ip = f"10.0.{abs(hash(switch_name)) % 250}.{j+1}"
-                host_name = f'h{switch_name}_{j+1}'
+            for _ in range(num_hosts):
+                subnet = (host_counter - 1) // 253
+                host_num = ((host_counter - 1) % 253) + 2
+                host_ip = f"10.0.{subnet}.{host_num}"
+                
+                host_name = f'h{host_counter}'
                 host = self.addHost(host_name, ip=host_ip)
-                self.addLink(host, switch_ref, 
-                           bw=HOST_BW_MBPS,
-                           delay="0.1ms")
-                self.topology_data["bandwidth"][f"{host_ip}-{switch_dpid}"] = HOST_BW_MBPS
+                
+                self.addLink(host, switch_info['mininet_obj'], 
+                            bw=HOST_BW_MBPS,
+                            delay="0.1ms",
+                            use_htb=True)
+                
+                host_to_switch_mapping[host_ip] = switch_info['dpid']
+                self.topology_data["bandwidth"][f"{host_ip}-{switch_info['dpid']}"] = HOST_BW_MBPS
+                self.topology_data["distances"][f"{host_ip}-{switch_info['dpid']}"] = 0.1
+                
+                host_counter += 1
         
-        # GML edge distances
-        for u, v, edge_data in G.edges(data=True):
-            u_dpid = self.node_to_dpid[u]
-            v_dpid = self.node_to_dpid[v]
-            distance_km = edge_data['dist']
-            self.topology_data["distances"][f"{u_dpid}-{v_dpid}"] = distance_km
-            self.topology_data["distances"][f"{v_dpid}-{u_dpid}"] = distance_km
+        for src_node in switch_nodes:
+            if src_node in switches and src_node in node_positions:
+                src_dpid = switches[src_node]['dpid']
+                for dst_node in switch_nodes:
+                    if dst_node in switches and dst_node in node_positions and src_node != dst_node:
+                        dst_dpid = switches[dst_node]['dpid']
+                        pos1, pos2 = node_positions[src_node], node_positions[dst_node]
+                        dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
+                        self.topology_data["distances"][f"{src_dpid}-{dst_dpid}"] = dist
         
-        # Coordinate-based distances
-        switch_positions = {}
-        for node_id, node_data in G.nodes(data=True):
-            if 'lat' in node_data and 'lon' in node_data:
-                node_dpid = self.node_to_dpid[node_id]
-                switch_positions[node_dpid] = {
-                    "lat": node_data['lat'],
-                    "lon": node_data['lon']
-                }
+        switch_to_hosts = {}
+        for host_ip, switch_dpid in host_to_switch_mapping.items():
+            if switch_dpid not in switch_to_hosts:
+                switch_to_hosts[switch_dpid] = []
+            switch_to_hosts[switch_dpid].append(host_ip)
         
-        for node1 in switch_positions:
-            for node2 in switch_positions:
-                if node1 != node2 and f"{node1}-{node2}" not in self.topology_data["distances"]:
-                    pos1, pos2 = switch_positions[node1], switch_positions[node2]
-                    dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
-                    self.topology_data["distances"][f"{node1}-{node2}"] = dist
+        for switch_dpid, host_list in switch_to_hosts.items():
+            for host1_ip in host_list:
+                for host2_ip in host_list:
+                    if host1_ip != host2_ip:
+                        self.topology_data["distances"][f"{host1_ip}-{host2_ip}"] = 0.1
 
     def get_topology_data(self, net):
         return self.topology_data
@@ -323,8 +421,6 @@ def run(topo):
         host.lock = Lock()
         host.cmd("ping -c 1 10.0.0.1 &")
 
-    # Generate JSON file with topology data
-    print("\n*** Generating topology data file...")
     topology_data = generate_network_topology_data(topo, net)
     
     json_filename = "topology_data.json"
@@ -333,18 +429,8 @@ def run(topo):
     try:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(topology_data, f, indent=2, ensure_ascii=False)
-        print(f"*** Data saved to: {json_filename}")
-        print(f"    - Distances: {len(topology_data['distances'])}")
-        print(f"    - Links: {len(topology_data['bandwidth'])}")
-    except Exception as e:
-        print(f"*** Error saving data: {e}")
-
-    if hasattr(topo, 'edge_switches') and hasattr(topo, 'backbone_switches'):
-        info("*** TOPOLOGY SUMMARY ***\n")
-        info("Controllers: {}\n".format(controllers))
-        info("EDGE switches: {}\n".format([s['name'] for s in topo.edge_switches]))
-        info("BACKBONE switches: {}\n".format([s['name'] for s in topo.backbone_switches]))
-        info("Total hosts: {}\n".format(len(net.hosts)))
+    except Exception:
+        pass
 
     return net
 

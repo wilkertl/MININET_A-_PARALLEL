@@ -18,16 +18,19 @@ class OnosApi():
         self.APP_ID = "org.onosproject.cli"
         
     def get_hosts(self):
+        """Get all hosts from ONOS"""
         r = requests.get(f"{self.BASE_URL}/hosts", auth=self.AUTH)
         r.raise_for_status()
         return r.json()["hosts"]
 
     def get_links(self):
+        """Get all links from ONOS"""
         r = requests.get(f"{self.BASE_URL}/links", auth=self.AUTH)
         r.raise_for_status()
         return r.json()["links"]
 
     def get_switches(self):
+        """Get all switch device IDs from ONOS"""
         url = f"{self.BASE_URL}/devices"
         response = requests.get(url, auth=self.AUTH)
         response.raise_for_status()
@@ -35,6 +38,7 @@ class OnosApi():
         return [device['id'] for device in devices if device["type"] == "SWITCH"]
 
     def push_intent(self, ingress_point, egress_point):
+        """Push host-to-host intent to ONOS"""
         data = {
             "type": "HostToHostIntent",
             "appId": self.APP_ID,
@@ -46,7 +50,7 @@ class OnosApi():
         return r.status_code, r.text
 
     def push_flow(self, switch_id, output_port, priority, eth_type=None, eth_dst=None, eth_src=None, in_port=None):
-        """Sends a flow rule to a specific device in ONOS"""
+        """Send a flow rule to a specific device in ONOS"""
         try:
             url = f"{self.BASE_URL}/flows/{switch_id}"
 
@@ -83,31 +87,57 @@ class OnosApi():
             return 500, f"Error: {e}"
     
     def push_flows_batch(self, flows_data):
-        """Sends multiple flows in batch"""
-        results = []
-        created_count = 0
-        for i, flow in enumerate(flows_data):
-            status, msg = self.push_flow(
-                flow['switch_id'],
-                flow['output_port'], 
-                flow['priority'],
-                flow.get('eth_type'),
-                flow.get('eth_dst'),
-                flow.get('eth_src'),
-                flow.get('in_port')
+        """Send multiple flows in a single batch request"""
+        if not flows_data:
+            return []
+        
+        batch_flows = []
+        for flow in flows_data:
+            criteria = []
+            if flow.get('in_port'):
+                criteria.append({"type": "IN_PORT", "port": flow['in_port']})
+            if flow.get('eth_src'):
+                criteria.append({"type": "ETH_SRC", "mac": flow['eth_src']})
+            if flow.get('eth_dst'):
+                criteria.append({"type": "ETH_DST", "mac": flow['eth_dst']})
+            if flow.get('eth_type'):
+                criteria.append({"type": "ETH_TYPE", "ethType": flow['eth_type']})
+
+            flow_data = {
+                "priority": flow['priority'],
+                "timeout": 40000,
+                "isPermanent": flow.get('isPermanent', True),
+                "deviceId": flow['switch_id'],
+                "treatment": {
+                    "instructions": [{"type": "OUTPUT", "port": flow['output_port']}]
+                },
+                "selector": {"criteria": criteria}
+            }
+            batch_flows.append(flow_data)
+
+        try:
+            url = f"{self.BASE_URL}/flows"
+            payload = {"flows": batch_flows}
+            
+            response = requests.post(
+                url,
+                auth=self.AUTH,
+                data=json.dumps(payload),
+                headers={'Content-Type': 'application/json', 'Accept': 'application/json'}
             )
-            results.append((status, msg))
             
-            if status == 201:
-                created_count += 1
-            elif status != 201:
-                print(f"Flow {i+1} failed ({status}): {msg[:100]}")
-            
-        print(f"✓ Flows processed: {created_count} created successfully")
-        return results
+            if response.status_code in [200, 201]:
+                return [(200, "Success")] * len(flows_data)
+            else:
+                print(f"Batch flow creation failed ({response.status_code}): {response.text[:100]}")
+                return [(response.status_code, response.text)] * len(flows_data)
+                
+        except Exception as e:
+            print(f"Error sending batch flows: {e}")
+            return [(500, f"Error: {e}")] * len(flows_data)
     
     def delete_flows_batch(self, flows_to_delete):
-        """Deletes multiple flows in batch using ONOS batch endpoint"""
+        """Delete multiple flows in batch using ONOS batch endpoint"""
         if not flows_to_delete:
             return 200, "No flows to delete"
             
@@ -131,68 +161,101 @@ class OnosApi():
             return 500, f"Error: {e}"
 
     def get_topology(self):
+        """Get topology information from ONOS"""
         url = f"{self.BASE_URL}/topology"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
     def get_port_statistics(self, device_id):
+        """Get port statistics for a specific device"""
         url = f"{self.BASE_URL}/statistics/ports/{device_id}"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
     def get_metrics(self):
+        """Get ONOS metrics"""
         url = f"{self.BASE_URL}/metrics"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
-    def delete_all_flows(self):
-        get_url = f"{self.BASE_URL}/flows"
-        response = requests.get(get_url, auth=self.AUTH)
-        if response.status_code != 200:
-            print("Failed to fetch flows:", response.status_code, response.text)
+    def get_flows(self):
+        """Get all flows from all devices"""
+        devices = self.get_switches()
+        all_flows = []
+        
+        for device_id in devices:
+            try:
+                device_url = f"{self.BASE_URL}/flows/{device_id}"
+                response = requests.get(device_url, auth=self.AUTH)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    flows = data.get('flows', [])
+                    all_flows.extend(flows)
+            except Exception as e:
+                print(f"Error getting flows for {device_id}: {e}")
+                continue
+        
+        return {"flows": all_flows}
+
+    def delete_all_flows(self, batch_size=1000):
+        """Delete all flows from all devices"""
+        devices = self.get_switches()
+        if not devices:
             return
 
-        data = response.json()
-        flows = data.get('flows', [])
-
-        flows_to_delete = []
-        for flow in flows:
-            crit = flow.get('selector', {}).get('criteria', [])
-            if any(c.get('type') == 'ETH_TYPE' and c.get('ethType') in ['lldp', '0x88cc', 'bddp'] for c in crit):
+        total_deleted = 0
+        
+        for i, device_id in enumerate(devices):
+            device_url = f"{self.BASE_URL}/flows/{device_id}"
+            response = requests.get(device_url, auth=self.AUTH)
+            
+            if response.status_code != 200:
+                print(f"Failed to fetch flows for {device_id}: {response.status_code}")
                 continue
-            flows_to_delete.append({
-                'device_id': flow['deviceId'],
-                'flow_id': flow['id']
-            })
 
-        if flows_to_delete:
-            status, message = self.delete_flows_batch(flows_to_delete)
-            if status in (200, 204):
-                print(f"Flow deletion complete: {len(flows_to_delete)} flows deleted")
-            else:
-                print(f"Error deleting flows: {status} - {message}")
-        else:
-            print("No flows to delete")
+            data = response.json()
+            flows = data.get('flows', [])
+
+            flows_to_delete = []
+            for flow in flows:
+                if flow.get('appId') == 'org.onosproject.core':
+                    continue
+                    
+                flows_to_delete.append({
+                    'device_id': device_id,
+                    'flow_id': flow['id']
+                })
+
+            if flows_to_delete:
+                status, message = self.delete_flows_batch(flows_to_delete)
+                if status not in [200, 204]:
+                    pass
+                else:
+                    total_deleted += len(flows_to_delete)
 
     def delete_inactive_devices(self):
-        url = f"{self.BASE_URL}/devices"
-        resp = requests.get(url, auth=self.AUTH)
-        devices = resp.json().get("devices", [])
-
-        for dev in devices:
-            if not dev.get("available", False):  
-                dev_id = dev["id"]
-                del_url = f"{url}/{dev_id}"
-                del_resp = requests.delete(del_url, auth=self.AUTH)
-                if del_resp.status_code in (200, 204):
-                    print(f"Deleted inactive device: {dev_id}")
-                else:
-                    print(f"Could not delete device {dev_id}: {del_resp.status_code}")
+        """Delete inactive devices from ONOS"""
+        try:
+            devices_url = f"{self.BASE_URL}/devices"
+            response = requests.get(devices_url, auth=self.AUTH)
+            devices = response.json().get('devices', [])
+            
+            for device in devices:
+                if not device.get('available', True):
+                    dev_id = device['id']
+                    del_url = f"{devices_url}/{dev_id}"
+                    del_resp = requests.delete(del_url, auth=self.AUTH)
+                    
+        except Exception:
+            pass
 
 def main():
     api = OnosApi()
-    api.delete_all_flows()
-    api.delete_inactive_devices()
+    print("Available methods:")
+    methods = [method for method in dir(api) if not method.startswith('_') and callable(getattr(api, method))]
+    for method in methods:
+        print(f"  {method}")
 
 if __name__ == "__main__":
     main()
