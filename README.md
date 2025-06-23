@@ -1,154 +1,133 @@
 # MININET A* PARALLEL
 
-This project implements an A* algorithm-based routing solution for network topologies using Mininet, ONOS controller, and Python visualization tools.
+Network routing solution using A* algorithm with Mininet, ONOS controller, and parallel processing optimization.
 
-## Description
+## Features
 
-The project provides:
-- **A* routing algorithm** with real geographic distance heuristics
-- **Network topology visualization** from GML files
+- **Parallel A* routing** with ProcessPoolExecutor
+- **Geographic distance heuristics** using real topology data
 - **ONOS controller integration** for SDN flow management
+- **Network topology visualization** from GML files
 - **Cross-platform compatibility** (Linux/Windows)
-
-Key features:
-- Nodes represent switches and hosts with geographic coordinates
-- Edges show bandwidth-based connections
-- Classification between edge switches (blue) and backbone switches (red)
-- Real-time topology updates via ONOS API
 
 ## Requirements
 
 - Python 3.x
-- Python dependencies:
-  ```
-  networkx
-  matplotlib
-  requests
-  python-dotenv
-  ```
+- ONOS Controller
+- Mininet
+
+Dependencies:
+```
+networkx
+matplotlib
+requests
+python-dotenv
+concurrent.futures
+```
 
 ## Installation
 
-1. Clone the repository:
+1. Clone repository:
    ```bash
    git clone https://github.com/wilkertl/MININET_A-_PARALLEL
    cd MININET_A-_PARALLEL
    ```
 
-2. Create and activate a virtual environment (recommended):
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/Mac
-   # or
-   .venv\Scripts\activate  # Windows
-   ```
-
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Configure environment variables:
+3. Configure environment:
    ```bash
    cp .env.example .env
-   # Edit .env file with your ONOS controller settings
+   # Edit .env with your ONOS settings
    ```
-
-## Configuration
-
-The project uses environment variables for configuration. Copy `.env.example` to `.env` and adjust the values:
-
-```bash
-# ONOS Controller Configuration
-ONOS_IP=127.0.0.1
-ONOS_PORT=8181
-ONOS_USER=onos
-ONOS_PASSWORD=rocks
-
-# Mininet Controllers (comma-separated list)
-CONTROLERS=172.17.0.2
-```
 
 ## Usage
 
-### Network Visualization
+### Main Application
 
-Visualize network topology from GML files:
-
-```bash
-python src/render_topology.py [gml_file]
-```
-
-Examples:
-```bash
-# Use default GML file (brasil.gml)
-python src/render_topology.py
-
-# Custom GML file and output
-python src/render_topology.py custom_topology.gml --output my_network.png
-
-# Generate without showing plot window
-python src/render_topology.py --no-show
-```
-
-### A* Routing
-
-Run the A* routing algorithm with ONOS:
+Run the interactive application:
 
 ```bash
-python src/router.py
+python src/app.py
 ```
 
-The router will:
-- Load topology data from `topology_data.json`
-- Connect to ONOS controller (default: localhost:8181)
-- Calculate optimal paths using A* with geographic heuristics
-- Install flows in the network
+Available commands:
+- `simple_net` - Create simple 2-host topology
+- `tower_net` - Create spine-leaf topology (configurable)
+- `gml_net` - Load topology from brasil.gml
+- `create_routes` - Install routes (sequential A*)
+- `create_routes_parallel` - Install routes (parallel A*)
+- `delete_routes` - Remove all flows
+- `render_topology` - Generate topology visualization
+- `ping_random` - Test connectivity between random hosts
+- `ping_all` - Test full connectivity
+- `traffic` - Generate dummy traffic
+- `clean_network` - Clean Mininet and flows
+- `help` - Show all commands
+- `exit` - Exit application
+
+### Direct Router Usage
+
+```python
+from router import Router
+
+router = Router()
+router.update()  # Get topology from ONOS
+router.install_all_routes(parallel=True)
+```
+
+### Topology Visualization
+
+```bash
+python src/render_topology.py [gml_file] --output network.png
+```
 
 ### ONOS API Management
-
-Direct ONOS controller management:
-
-```bash
-python src/onos_api.py
-```
-
-This will clean up all flows and inactive devices. You can also use the API programmatically:
 
 ```python
 from onos_api import OnosApi
 
 api = OnosApi()
 hosts = api.get_hosts()
-switches = api.get_switches()
 api.delete_all_flows()
 ```
+
+## Configuration
+
+Environment variables in `.env`:
+
+```bash
+ONOS_IP=127.0.0.1
+ONOS_PORT=8181
+ONOS_USER=onos
+ONOS_PASSWORD=rocks
+CONTROLERS=172.17.0.2
+```
+
+## Architecture
+
+- **Precomputation**: Dijkstra all-pairs for switch distances
+- **Route Processing**: Parallel A* with ProcessPoolExecutor
+- **Heuristic**: O(1) lookup using precomputed distances
+- **Batch Processing**: 1000 pairs/batch, 16 workers
+- **Flow Installation**: Sequential HTTP requests to ONOS
 
 ## Project Structure
 
 ```
-MININET_A-_PARALLEL/
-├── src/
-│   ├── router.py           # A* routing implementation
-│   ├── network.py          # Mininet topology setup
-│   ├── app.py              # Network management utilities
-│   ├── onos_api.py         # ONOS controller API
-│   ├── render_topology.py  # Topology visualization
-│   ├── brasil.gml          # Brazil topology data
-│   └── topology_data.json  # Distance/bandwidth data
-├── .env.example            # Environment variables template
-├── requirements.txt        # Python dependencies
-└── README.md
+src/
+├── app.py              # Main interactive application
+├── router.py           # Parallel A* routing engine
+├── network.py          # Mininet topology definitions
+├── onos_api.py         # ONOS controller API
+├── render_topology.py  # Network visualization
+├── brasil.gml          # Brazil topology data
+└── topology_data.json  # Distance/bandwidth cache
 ```
-
-## Contributing
-
-1. Fork the project
-2. Create a feature branch (`git checkout -b feature/new-feature`)
-3. Commit changes (`git commit -m 'Add new feature'`)
-4. Push to branch (`git push origin feature/new-feature`)
-5. Open a Pull Request
 
 ## License
 
-This project is under the MIT license. 
+MIT License 
