@@ -18,16 +18,19 @@ class OnosApi():
         self.APP_ID = "org.onosproject.cli"
         
     def get_hosts(self):
+        """Get all hosts from ONOS"""
         r = requests.get(f"{self.BASE_URL}/hosts", auth=self.AUTH)
         r.raise_for_status()
         return r.json()["hosts"]
 
     def get_links(self):
+        """Get all links from ONOS"""
         r = requests.get(f"{self.BASE_URL}/links", auth=self.AUTH)
         r.raise_for_status()
         return r.json()["links"]
 
     def get_switches(self):
+        """Get all switch device IDs from ONOS"""
         url = f"{self.BASE_URL}/devices"
         response = requests.get(url, auth=self.AUTH)
         response.raise_for_status()
@@ -35,6 +38,7 @@ class OnosApi():
         return [device['id'] for device in devices if device["type"] == "SWITCH"]
 
     def push_intent(self, ingress_point, egress_point):
+        """Push host-to-host intent to ONOS"""
         data = {
             "type": "HostToHostIntent",
             "appId": self.APP_ID,
@@ -46,7 +50,7 @@ class OnosApi():
         return r.status_code, r.text
 
     def push_flow(self, switch_id, output_port, priority, eth_type=None, eth_dst=None, eth_src=None, in_port=None):
-        """Sends a flow rule to a specific device in ONOS"""
+        """Send a flow rule to a specific device in ONOS"""
         try:
             url = f"{self.BASE_URL}/flows/{switch_id}"
 
@@ -83,7 +87,7 @@ class OnosApi():
             return 500, f"Error: {e}"
     
     def push_flows_batch(self, flows_data):
-        """Sends multiple flows in a single batch request"""
+        """Send multiple flows in a single batch request"""
         if not flows_data:
             return []
         
@@ -133,7 +137,7 @@ class OnosApi():
             return [(500, f"Error: {e}")] * len(flows_data)
     
     def delete_flows_batch(self, flows_to_delete):
-        """Deletes multiple flows in batch using ONOS batch endpoint"""
+        """Delete multiple flows in batch using ONOS batch endpoint"""
         if not flows_to_delete:
             return 200, "No flows to delete"
             
@@ -157,16 +161,19 @@ class OnosApi():
             return 500, f"Error: {e}"
 
     def get_topology(self):
+        """Get topology information from ONOS"""
         url = f"{self.BASE_URL}/topology"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
     def get_port_statistics(self, device_id):
+        """Get port statistics for a specific device"""
         url = f"{self.BASE_URL}/statistics/ports/{device_id}"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
 
     def get_metrics(self):
+        """Get ONOS metrics"""
         url = f"{self.BASE_URL}/metrics"
         response = requests.get(url, auth=self.AUTH)
         return response.json()
@@ -192,6 +199,7 @@ class OnosApi():
         return {"flows": all_flows}
 
     def delete_all_flows(self, batch_size=1000):
+        """Delete all flows from all devices"""
         devices = self.get_switches()
         if not devices:
             return
@@ -211,7 +219,6 @@ class OnosApi():
 
             flows_to_delete = []
             for flow in flows:
-                # Skip flows created by ONOS core (essential system flows)
                 if flow.get('appId') == 'org.onosproject.core':
                     continue
                     
@@ -228,6 +235,7 @@ class OnosApi():
                     total_deleted += len(flows_to_delete)
 
     def delete_inactive_devices(self):
+        """Delete inactive devices from ONOS"""
         try:
             devices_url = f"{self.BASE_URL}/devices"
             response = requests.get(devices_url, auth=self.AUTH)

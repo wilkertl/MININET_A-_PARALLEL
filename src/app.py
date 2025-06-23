@@ -69,12 +69,9 @@ class App():
     def clean_network(self):
         if not MININET_AVAILABLE:
             print("Mininet not available - cleaning only flows")
-            self.api.delete_all_flows()
             self.api.delete_inactive_devices()
             return
         
-        self.api.delete_all_flows()
-
         if self.net:
             self.net.stop()
 
@@ -100,7 +97,7 @@ class App():
             print("Command requires Mininet!")
             return
         self.clean_network()
-        self.net = run(Tower(num_spines=8, num_leafs=2, hosts_per_leaf=8))
+        self.net = run(Tower(num_spines=5, num_leafs=20, hosts_per_leaf=15))
 
     def gml_net(self):
         if not MININET_AVAILABLE:
@@ -122,14 +119,14 @@ class App():
     def create_routes(self):
         start = time.time()
         self.router.update()
-        self.router.install_all_routes()
+        self.router.install_all_routes(parallel=False)
         total_time = time.time() - start
         print(f"Completed. Time spent: {total_time:.2f}s")
 
     def create_routes_parallel(self):
         start = time.time()
         self.router.update()
-        self.router.install_all_routes_parallel()
+        self.router.install_all_routes(parallel=True)
         total_time = time.time() - start
         print(f"Completed. Time spent: {total_time:.2f}s")
 
