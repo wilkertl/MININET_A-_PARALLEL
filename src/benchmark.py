@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Benchmark comparing router implementations
+Benchmark comparing router implementations - simplified version
 """
 
 import sys
 import os
 import time
-from typing import Dict, List
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -22,15 +21,15 @@ try:
 except:
     PYCUDA_AVAILABLE = False
 
-def benchmark_router(router_class, name: str) -> Dict:
-    """Test a router and return timing results"""
-    print(f"\n{name}:")
+def benchmark_astar_router() -> dict:
+    """Test A* router (both sequential and parallel)"""
+    print(f"\nA* Router:")
     
     try:
-        router = router_class()
+        router = Router()
         router.update()
         
-        results = {'name': name}
+        results = {'name': 'A* Router'}
         
         # Sequential test
         try:
@@ -58,32 +57,93 @@ def benchmark_router(router_class, name: str) -> Dict:
         
     except Exception as e:
         print(f"  Initialization ERROR: {e}")
-        return {'name': name, 'error': str(e)}
+        return {'name': 'A* Router', 'error': str(e)}
+
+def benchmark_dijkstra_router() -> dict:
+    """Test Dijkstra router (parallel only)"""
+    print(f"\nDijkstra Router:")
+    
+    try:
+        router = RouterDijkstra()
+        router.update()
+        
+        results = {'name': 'Dijkstra Router'}
+        
+        # Parallel test only
+        try:
+            start = time.time()
+            flows = router.install_all_routes(parallel=True)
+            par_time = time.time() - start
+            results['parallel'] = {'time': par_time, 'flows': len(flows)}
+            print(f"  Parallel: {len(flows)} flows in {par_time:.2f}s")
+        except Exception as e:
+            print(f"  Parallel: ERROR - {e}")
+            results['parallel'] = None
+            
+        return results
+        
+    except Exception as e:
+        print(f"  Initialization ERROR: {e}")
+        return {'name': 'Dijkstra Router', 'error': str(e)}
+
+def benchmark_pycuda_router() -> dict:
+    """Test PyCUDA router (GPU-accelerated only)"""
+    print(f"\nPyCUDA Router:")
+    
+    try:
+        router = RouterPyCUDA()
+        router.update()
+        
+        results = {'name': 'PyCUDA Router'}
+        
+        # GPU-accelerated test only
+        try:
+            start = time.time()
+            flows = router.install_all_routes()  # Always GPU-optimized
+            gpu_time = time.time() - start
+            results['gpu_accelerated'] = {'time': gpu_time, 'flows': len(flows)}
+            print(f"  GPU-accelerated: {len(flows)} flows in {gpu_time:.2f}s")
+        except Exception as e:
+            print(f"  GPU-accelerated: ERROR - {e}")
+            results['gpu_accelerated'] = None
+            
+        return results
+        
+    except Exception as e:
+        print(f"  Initialization ERROR: {e}")
+        return {'name': 'PyCUDA Router', 'error': str(e)}
 
 def main():
-    print("=== Router Benchmark ===")
+    print("=== Router Performance Benchmark ===")
     
     results = []
     
-    # Test each router
-    #results.append(benchmark_router(Router, "A* Router"))
-    #results.append(benchmark_router(RouterDijkstra, "Dijkstra Router"))
+    # Test A* router (sequential + parallel)
+    astar_result = benchmark_astar_router()
+    results.append(astar_result)
     
+    # Test Dijkstra router (parallel only)
+    dijkstra_result = benchmark_dijkstra_router()
+    results.append(dijkstra_result)
+    
+    # Test PyCUDA router (GPU only)
     if PYCUDA_AVAILABLE:
-        results.append(benchmark_router(RouterPyCUDA, "PyCUDA Router"))
+        pycuda_result = benchmark_pycuda_router()
+        results.append(pycuda_result)
     else:
-        print("\nPyCUDA Router: NOT AVAILABLE")
+        print("\nPyCUDA Router: NOT AVAILABLE (install pycuda)")
     
-    # Calculate speedups
-    print("\n=== Summary ===")
+    # Performance ranking
+    print("\n=== Performance Summary ===")
     
     all_times = []
     for result in results:
         if 'error' in result:
             continue
-        for mode in ['sequential', 'parallel']:
+        for mode in ['sequential', 'parallel', 'gpu_accelerated']:
             if result.get(mode):
-                all_times.append((f"{result['name']} ({mode})", result[mode]['time']))
+                mode_display = mode.replace('_', '-')
+                all_times.append((f"{result['name']} ({mode_display})", result[mode]['time'], result[mode]['flows']))
     
     if all_times:
         # Sort by time (fastest first)
@@ -91,9 +151,30 @@ def main():
         slowest_time = all_times[-1][1]
         
         print("Ranking (fastest first):")
-        for i, (name, time_taken) in enumerate(all_times, 1):
+        for i, (name, time_taken, flow_count) in enumerate(all_times, 1):
             speedup = slowest_time / time_taken
-            print(f"{i}. {name}: {time_taken:.2f}s ({speedup:.2f}x)")
+            print(f"{i}. {name}: {time_taken:.2f}s - {flow_count} flows ({speedup:.2f}x speedup)")
+    
+    # Summary
+    print("\n=== Overall Summary ===")
+    if all_times:
+        fastest = all_times[0]
+        print(f"🏆 Fastest: {fastest[0]} - {fastest[1]:.2f}s ({fastest[2]} flows)")
+        
+        if len(all_times) > 1:
+            gpu_results = [x for x in all_times if 'gpu-accelerated' in x[0]]
+            cpu_results = [x for x in all_times if 'gpu-accelerated' not in x[0]]
+            
+            if gpu_results and cpu_results:
+                fastest_gpu = gpu_results[0]
+                fastest_cpu = min(cpu_results, key=lambda x: x[1])
+                
+                if fastest_gpu[1] < fastest_cpu[1]:
+                    gpu_advantage = fastest_cpu[1] / fastest_gpu[1]
+                    print(f"🚀 GPU Advantage: {gpu_advantage:.2f}x faster than best CPU")
+                else:
+                    cpu_advantage = fastest_gpu[1] / fastest_cpu[1]
+                    print(f"🖥️  CPU Advantage: {cpu_advantage:.2f}x faster than GPU")
 
 if __name__ == "__main__":
     main() 

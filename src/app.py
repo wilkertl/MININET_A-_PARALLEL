@@ -139,7 +139,7 @@ class App():
         self._create_network(SimpleTopo, "Simple Network")
 
     def tower_net(self):
-        self._create_network(Tower, "Tower Network", num_spines=10, num_leafs=40, hosts_per_leaf=20)
+        self._create_network(Tower, "Tower Network", num_spines=10, num_leafs=25, hosts_per_leaf=25)
 
     def gml_net(self):
         gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')

@@ -8,10 +8,9 @@ import json
 import os
 import numpy as np
 from itertools import combinations
-import concurrent.futures
 
 # Import PyCUDA Dijkstra implementation
-from dijkstra import dijkstra_parallel_pycuda, PYCUDA_AVAILABLE
+from dijkstra import dijkstra_parallel_pycuda, PYCUDA_AVAILABLE, reconstruct_paths_batch_gpu
 
 # Detect if Mininet is available
 try:
@@ -25,108 +24,9 @@ except ImportError:
 # Router configuration constants
 DEFAULT_PRIORITY = 10
 HOST_SWITCH_WEIGHT = 0.1
-MAX_WORKERS = 16
-BATCH_SIZE = 1000
-
-def process_batch_worker_pycuda(host_pairs_batch, distance_matrix, node_to_index, index_to_node, 
-                               adjacency_lookup, port_map, host_lookup, switches_set):
-    """Process a batch of host pairs for parallel route computation using PyCUDA results"""
-    
-    def find_shortest_path_worker(source_node, target_node, distance_matrix, adjacency_lookup, 
-                                 node_to_index, index_to_node):
-        """Find shortest path using PyCUDA distance matrix - OPTIMIZED WORKER"""
-        if source_node not in node_to_index or target_node not in node_to_index:
-            return None
-        
-        source_idx = node_to_index[source_node]
-        target_idx = node_to_index[target_node]
-        
-        INFNTY = 1e9
-        if distance_matrix[source_idx, target_idx] >= INFNTY:
-            return None
-            
-        if source_idx == target_idx:
-            return [source_node]
-        
-        # Fast greedy path reconstruction
-        path = [source_node]
-        current_node = source_node
-        current_idx = source_idx
-        visited = {source_node}
-        
-        for _ in range(8):  # Limit hops for performance
-            if current_idx == target_idx:
-                break
-                
-            best_next_node = None
-            best_next_idx = -1
-            min_distance = float('inf')
-            
-            if current_node in adjacency_lookup:
-                for neighbor_node, _ in adjacency_lookup[current_node]:
-                    if neighbor_node in visited or neighbor_node not in node_to_index:
-                        continue
-                    
-                    neighbor_idx = node_to_index[neighbor_node]
-                    remaining_distance = distance_matrix[neighbor_idx, target_idx]
-                    
-                    if remaining_distance < INFNTY and remaining_distance < min_distance:
-                        min_distance = remaining_distance
-                        best_next_node = neighbor_node
-                        best_next_idx = neighbor_idx
-            
-            if best_next_node is None:
-                return None
-            
-            current_node = best_next_node
-            current_idx = best_next_idx
-            path.append(current_node)
-            visited.add(current_node)
-        
-        if current_idx == target_idx:
-            return path
-        
-        return None
-    
-    all_flows = set()
-    
-    for source_mac, target_mac in host_pairs_batch:
-        source_ip = host_lookup.get(source_mac)
-        target_ip = host_lookup.get(target_mac)
-        
-        if source_ip == target_ip:
-            continue
-        
-        path = find_shortest_path_worker(source_mac, target_mac, distance_matrix, 
-                                       adjacency_lookup, node_to_index, index_to_node)
-        
-        if not path or len(path) < 3:
-            continue
-        
-        # Generate flows for both directions
-        for direction_path in [path, list(reversed(path))]:
-            dst_mac = target_mac if direction_path == path else source_mac
-            src_mac = source_mac if direction_path == path else target_mac
-            
-            for i in range(1, len(direction_path) - 1):
-                current_switch = direction_path[i]
-                if current_switch in switches_set:
-                    prev_node = direction_path[i-1]
-                    next_node = direction_path[i+1]
-                    
-                    in_port = port_map.get((current_switch, prev_node))
-                    out_port = port_map.get((current_switch, next_node))
-                    
-                    if in_port and out_port:
-                        all_flows.add((
-                            current_switch, in_port, out_port, 
-                            DEFAULT_PRIORITY, dst_mac, src_mac
-                        ))
-    
-    return list(all_flows)
 
 class RouterPyCUDA():
-    """Manages routing and flow installation using PyCUDA Dijkstra implementation"""
+    """Manages routing and flow installation using PyCUDA GPU acceleration"""
     
     def __init__(self, onos_ip='127.0.0.1', port=8181):
         if MININET_AVAILABLE:
@@ -150,8 +50,6 @@ class RouterPyCUDA():
         # Node mapping for adjacency matrix
         self.node_to_index = {}
         self.index_to_node = {}
-        
-        self.path_cache = {}
 
     def load_topology_data(self):
         """Load topology data from JSON file with automatic fallback"""
@@ -329,10 +227,6 @@ class RouterPyCUDA():
                 adjacency_matrix[dst_idx, src_idx] = weight
                 print(f"Using default weight for link {clean_src}-{clean_dst} = {weight}")
         
-        # Check matrix integrity
-        max_val = np.max(adjacency_matrix[adjacency_matrix != INFNTY])
-        min_val = np.min(adjacency_matrix[adjacency_matrix > 0])
-        
         return adjacency_matrix
 
     def update(self):
@@ -344,121 +238,12 @@ class RouterPyCUDA():
             
             self.build_lookups()
             self.validate_hosts_connectivity()
-            self.path_cache.clear()
             
-            mode = "Mock" if not MININET_AVAILABLE else "Real"
         except Exception as e:
             print(f"Error updating topology: {e}")
             self.hosts = []
             self.switches = []
             self.links = []
-
-    def get_host_switch(self, host_mac):
-        """Get switch ID that host is connected to"""
-        for switch_id in self.switches_set:
-            if (switch_id, host_mac) in self.port_map:
-                return switch_id
-        return None
-
-    def get_switch_for_node(self, node):
-        """Get the switch associated with a node (host MAC or switch ID)"""
-        if node in self.mac_to_ip:
-            return self.get_host_switch(node)
-        elif node in self.switches_set:
-            return node
-        return None
-
-    def build_adjacency_lookup(self):
-        """Build fast adjacency lookup for path reconstruction"""
-        adjacency_lookup = {}
-        
-        # Add host-switch connections
-        for host in self.hosts:
-            host_mac = host['mac']
-            switch_id = host['locations'][0]['elementId']
-            
-            if host_mac not in adjacency_lookup:
-                adjacency_lookup[host_mac] = []
-            if switch_id not in adjacency_lookup:
-                adjacency_lookup[switch_id] = []
-                
-            adjacency_lookup[host_mac].append((switch_id, HOST_SWITCH_WEIGHT))
-            adjacency_lookup[switch_id].append((host_mac, HOST_SWITCH_WEIGHT))
-        
-        # Add switch-switch connections
-        for link in self.links:
-            src = link['src']['device']
-            dst = link['dst']['device']
-            clean_src = self.clean_dpid(src)
-            clean_dst = self.clean_dpid(dst)
-            
-            distance = self.find_distance(clean_src, clean_dst)
-            weight = distance if distance is not None else 1.0
-            
-            if src not in adjacency_lookup:
-                adjacency_lookup[src] = []
-            if dst not in adjacency_lookup:
-                adjacency_lookup[dst] = []
-                
-            adjacency_lookup[src].append((dst, weight))
-            adjacency_lookup[dst].append((src, weight))
-        
-        return adjacency_lookup
-
-    def find_shortest_path_pycuda(self, source_node, target_node, distance_matrix, adjacency_lookup):
-        """Find shortest path using PyCUDA distance matrix - OPTIMIZED"""
-        if source_node not in self.node_to_index or target_node not in self.node_to_index:
-            return None
-        
-        source_idx = self.node_to_index[source_node]
-        target_idx = self.node_to_index[target_node]
-        
-        if source_idx == target_idx:
-            return [source_node]
-        
-        # Fast path reconstruction using greedy approach
-        path = [source_node]
-        current_node = source_node
-        current_idx = source_idx
-        visited = {source_node}
-        
-        INFNTY = 1e9
-        max_hops = 10  # Limit path length for performance
-        
-        for _ in range(max_hops):
-            if current_idx == target_idx:
-                break
-                
-            best_next_node = None
-            best_next_idx = -1
-            min_distance = float('inf')
-            
-            # Find best neighbor (lowest remaining distance to target)
-            if current_node in adjacency_lookup:
-                for neighbor_node, _ in adjacency_lookup[current_node]:
-                    if neighbor_node in visited or neighbor_node not in self.node_to_index:
-                        continue
-                    
-                    neighbor_idx = self.node_to_index[neighbor_node]
-                    remaining_distance = distance_matrix[neighbor_idx, target_idx]
-                    
-                    if remaining_distance < INFNTY and remaining_distance < min_distance:
-                        min_distance = remaining_distance
-                        best_next_node = neighbor_node
-                        best_next_idx = neighbor_idx
-            
-            if best_next_node is None:
-                return None
-            
-            current_node = best_next_node
-            current_idx = best_next_idx
-            path.append(current_node)
-            visited.add(current_node)
-        
-        if current_idx == target_idx:
-            return path
-        
-        return None
 
     def generate_flows(self, flow_tuples):
         """Generate flow structures from tuples"""
@@ -489,135 +274,100 @@ class RouterPyCUDA():
             except Exception as e:
                 pass
         
-        return all_results 
+        return all_results
 
     def install_all_routes(self, parallel=True):
-        """Install all routes using PyCUDA GPU parallel Dijkstra algorithm
-        
-        Note: PyCUDA is always parallel (GPU-based). The parallel parameter controls
-        whether to use ProcessPoolExecutor for host pair processing, but GPU computation
-        is always parallel.
+        """
+        Install all routes using GPU-accelerated processing (default method)
         
         Args:
-            parallel (bool): If True, use ProcessPoolExecutor for host pair processing
+            parallel (bool): Ignored - GPU acceleration is always used
         """
-        api_mode = "Mock" if not MININET_AVAILABLE else "Real"
-        processing_mode = "GPU+CPU parallel" if parallel else "GPU+CPU sequential"
-        start_time = time.time()
         
-        # Build adjacency matrix for PyCUDA
+        # Build adjacency matrix and get distance matrix from GPU
         adjacency_matrix = self.build_adjacency_matrix()
-        if adjacency_matrix is None:
-            return []
+        V = len(self.node_to_index)
         
-        V = adjacency_matrix.shape[0]
-        
-        # Execute PyCUDA Dijkstra (ALWAYS parallel on GPU)
-        gpu_start = time.time()
+        # Get all-pairs shortest distances using GPU Dijkstra
         distance_matrix, _ = dijkstra_parallel_pycuda(V, adjacency_matrix)
-        gpu_time = time.time() - gpu_start
         
         if distance_matrix is None:
+            print("Failed to compute distance matrix on GPU")
             return []
         
-        # Build adjacency lookup for path reconstruction
-        adjacency_lookup = self.build_adjacency_lookup()
-        
-        # Get unique hosts
+        # Extract MAC addresses from host dictionaries
         unique_hosts = {host['ipAddresses'][0]: host for host in self.hosts}
         host_macs = [host['mac'] for host in unique_hosts.values()]
         
         if len(host_macs) < 2:
+            print("Not enough hosts for routing")
             return []
-
-        # Create host pairs
+        
+        # Generate all host pairs (MAC addresses)
         host_pairs = list(combinations(host_macs, 2))
+        
+        # GPU-accelerated flow generation
+        start_time = time.time()
+        unique_flows_final = self._generate_flows_gpu_accelerated(
+            host_pairs, distance_matrix, adjacency_matrix
+        )
+        gpu_time = time.time() - start_time
+        
+        # Convert to flows and push to ONOS
+        flows_data = self.generate_flows(list(unique_flows_final))
+        
+        if flows_data:
+            self.push_flows_to_onos(flows_data)
+        
+        return flows_data
+
+    def _generate_flows_gpu_accelerated(self, host_pairs, distance_matrix, adjacency_matrix):
+        """Generate flows using GPU acceleration with minimal CPU processing"""
         unique_flows_final = set()
         
-        if parallel:
-            # Parallel host pair processing with ProcessPoolExecutor
-            batch_size = max(BATCH_SIZE, len(host_pairs) // (MAX_WORKERS * 2))
-            host_batches = [host_pairs[i:i + batch_size] for i in range(0, len(host_pairs), batch_size)]
-
-            with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = [
-                    executor.submit(
-                        process_batch_worker_pycuda,
-                        batch,
-                        distance_matrix,
-                        self.node_to_index,
-                        self.index_to_node,
-                        adjacency_lookup,
-                        self.port_map,
-                        self.mac_to_ip,
-                        self.switches_set
-                    )
-                    for batch in host_batches
-                ]
-                
-                # Collect results
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        flow_list = future.result()
-                        unique_flows_final.update(flow_list)
-                    except Exception as e:
-                        print(f"Process batch failed: {e}")
-        else:
-            # Sequential host pair processing (but GPU Dijkstra is still parallel)
-            paths_found = 0
-            paths_failed = 0
+        # Process all host pairs directly on GPU using batch processing
+        batch_size = min(5000, len(host_pairs))  # Very large batch size for GPU
+        
+        for i in range(0, len(host_pairs), batch_size):
+            batch = host_pairs[i:i + batch_size]
             
-            for i, (source_mac, target_mac) in enumerate(host_pairs):
-                source_ip = self.mac_to_ip.get(source_mac)
-                target_ip = self.mac_to_ip.get(target_mac)
-                
-                if source_ip == target_ip:
-                    continue
-                
-                # Use PyCUDA distance matrix for path reconstruction
-                path = self.find_shortest_path_pycuda(source_mac, target_mac, distance_matrix, adjacency_lookup)
-                
-                if not path or len(path) < 3:
-                    paths_failed += 1
-                    continue
-                else:
-                    paths_found += 1
-                
-                # Generate flows for both directions
-                for direction_path in [path, list(reversed(path))]:
-                    dst_mac = target_mac if direction_path == path else source_mac
-                    src_mac = source_mac if direction_path == path else target_mac
+            # GPU batch path reconstruction - this is where the magic happens
+            valid_paths = reconstruct_paths_batch_gpu(
+                batch, distance_matrix, adjacency_matrix, 
+                self.node_to_index, self.index_to_node
+            )
+            
+            # Generate flows from GPU-computed paths (minimal CPU work)
+            for j, path_nodes in enumerate(valid_paths):
+                if j < len(batch) and len(path_nodes) >= 3:
+                    source_mac, target_mac = batch[j]
+                    self._add_bidirectional_flows(path_nodes, source_mac, target_mac, unique_flows_final)
+        
+        return unique_flows_final
+
+    def _add_bidirectional_flows(self, path_nodes, source_mac, target_mac, flows_set):
+        """Add flows for both directions efficiently"""
+        if len(path_nodes) < 3:
+            return
+        
+        # Process both directions at once
+        directions = [
+            (path_nodes, source_mac, target_mac),
+            (list(reversed(path_nodes)), target_mac, source_mac)
+        ]
+        
+        for direction_path, src_mac, dst_mac in directions:
+            for i in range(1, len(direction_path) - 1):
+                current_switch = direction_path[i]
+                if current_switch in self.switches_set:
+                    prev_node = direction_path[i-1]
+                    next_node = direction_path[i+1]
                     
-                    for i in range(1, len(direction_path) - 1): 
-                        current_switch = direction_path[i]
-                        if current_switch in self.switches_set:  
-                            in_port = self.port_map.get((current_switch, direction_path[i-1]))
-                            out_port = self.port_map.get((current_switch, direction_path[i+1]))
-                            
-                            if in_port and out_port:
-                                unique_flows_final.add((
-                                    current_switch, in_port, out_port, 
-                                    DEFAULT_PRIORITY, dst_mac, src_mac
-                                ))
-            
-        # Generate and push flows
-        all_flows = self.generate_flows(list(unique_flows_final))
-
-        if not all_flows:
-            return []
-
-        calc_time = time.time() - start_time
-        
-        api_start = time.time()
-        api_results = self.push_flows_to_onos(all_flows)
-        api_time = time.time() - api_start
-        
-        return all_flows
-
-    def install_all_routes_pycuda_parallel(self):
-        """Install routes using PyCUDA GPU with parallel host processing (recommended)"""
-        return self.install_all_routes(parallel=True)
-    
-    def install_all_routes_pycuda_sequential(self):
-        """Install routes using PyCUDA GPU with sequential host processing"""
-        return self.install_all_routes(parallel=False)
+                    in_port = self.port_map.get((current_switch, prev_node))
+                    out_port = self.port_map.get((current_switch, next_node))
+                    
+                    if in_port and out_port:
+                        flows_set.add((
+                            current_switch, in_port, out_port, 
+                            DEFAULT_PRIORITY, dst_mac, src_mac
+                        ))

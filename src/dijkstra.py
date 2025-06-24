@@ -79,6 +79,88 @@ __global__ void dijkstra_kernel(int V, float *graph, float *len, float *temp_dis
 }
 """
 
+
+
+
+
+# Advanced CUDA kernel for batch path reconstruction (GPU-optimized)
+cuda_batch_paths_kernel = """
+#define INFNTY 1e9f
+#define MAX_PATH_LENGTH 64
+
+__global__ void reconstruct_paths_batch(
+    int num_pairs,
+    int V,
+    int* host_pairs,           // [num_pairs, 2] - source and target indices
+    float* distance_matrix,    // [V, V] - precomputed distances  
+    float* adjacency_matrix,   // [V, V] - adjacency weights
+    int* paths_output,         // [num_pairs, MAX_PATH_LENGTH] - reconstructed paths
+    int* path_lengths          // [num_pairs] - actual path lengths
+)
+{
+    int pair_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (pair_idx >= num_pairs) return;
+    
+    int source = host_pairs[pair_idx * 2];
+    int target = host_pairs[pair_idx * 2 + 1];
+    
+    // Initialize path length
+    path_lengths[pair_idx] = 0;
+    
+    if (source < 0 || source >= V || target < 0 || target >= V) return;
+    if (distance_matrix[source * V + target] >= INFNTY) return;
+    
+    // Same source and target
+    if (source == target) {
+        paths_output[pair_idx * MAX_PATH_LENGTH] = source;
+        path_lengths[pair_idx] = 1;
+        return;
+    }
+    
+    // Reconstruct path using backtracking
+    int path[MAX_PATH_LENGTH];
+    int path_len = 0;
+    
+    path[path_len++] = target;
+    int current = target;
+    
+    while (current != source && path_len < MAX_PATH_LENGTH - 1) {
+        int best_predecessor = -1;
+        float min_dist = INFNTY;
+        
+        // Find predecessor with minimum distance + edge weight = current distance
+        for (int predecessor = 0; predecessor < V; predecessor++) {
+            if (adjacency_matrix[predecessor * V + current] > 0.0f) {
+                float pred_dist = distance_matrix[source * V + predecessor];
+                float edge_weight = adjacency_matrix[predecessor * V + current];
+                float total_dist = distance_matrix[source * V + current];
+                
+                if (fabsf(pred_dist + edge_weight - total_dist) < 1e-6f) {
+                    if (pred_dist < min_dist) {
+                        min_dist = pred_dist;
+                        best_predecessor = predecessor;
+                    }
+                }
+            }
+        }
+        
+        if (best_predecessor == -1) break;
+        
+        path[path_len++] = best_predecessor;
+        current = best_predecessor;
+    }
+    
+    // Reverse path and copy to output
+    if (current == source && path_len >= 2) {
+        for (int i = 0; i < path_len; i++) {
+            paths_output[pair_idx * MAX_PATH_LENGTH + i] = path[path_len - 1 - i];
+        }
+        path_lengths[pair_idx] = path_len;
+    }
+}
+"""
+
 def dijkstra_parallel_pycuda(V, adjacency_matrix):
     """
     PyCUDA parallel Dijkstra implementation with float32
@@ -205,41 +287,86 @@ def dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=None):
     
     return len_array
 
-def dijkstra_cpu(V, adjacency_matrix):
-    """Sequential CPU all-pairs Dijkstra for comparison"""
+def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, node_to_index, index_to_node):
+    """
+    GPU-accelerated batch path reconstruction
+    Processes multiple host pairs simultaneously on GPU
+    """
+    if not PYCUDA_AVAILABLE:
+        return []
     
-    INFNTY = 1e9
-    adjacency_matrix = adjacency_matrix.astype(np.float32)
-    len_array = np.full((V, V), INFNTY, dtype=np.float32)
-    
-    for source in range(V):
-        distances = np.full(V, INFNTY, dtype=np.float32)
-        visited = np.zeros(V, dtype=bool)
-        distances[source] = 0.0
+    try:
+        import pycuda.gpuarray as gpuarray
+        from pycuda.compiler import SourceModule
+        import pycuda.driver as cuda
         
-        for _ in range(V - 1):
-            # Find unvisited vertex with minimum distance
-            min_dist = INFNTY
-            current_vertex = -1
-            
-            for v in range(V):
-                if not visited[v] and distances[v] <= min_dist:
-                    min_dist = distances[v]
-                    current_vertex = v
-            
-            if current_vertex == -1:
-                break
-                
-            visited[current_vertex] = True
-            
-            # Update distances of neighbors
-            for v in range(V):
-                weight = adjacency_matrix[current_vertex, v]
-                if (not visited[v] and weight > 0 and 
-                    distances[current_vertex] < INFNTY and
-                    distances[current_vertex] + weight < distances[v]):
-                    distances[v] = distances[current_vertex] + weight
+        V = distance_matrix.shape[0]
+        num_pairs = len(host_pairs)
+        MAX_PATH_LENGTH = 64
         
-        len_array[source] = distances
-    
-    return len_array
+        if num_pairs == 0:
+            return []
+        
+        # Prepare host pairs array (convert MAC addresses to indices)
+        host_pairs_indices = []
+        valid_mac_pairs = []
+        
+        for source_mac, target_mac in host_pairs:
+            if source_mac in node_to_index and target_mac in node_to_index:
+                source_idx = node_to_index[source_mac]
+                target_idx = node_to_index[target_mac]
+                host_pairs_indices.extend([source_idx, target_idx])
+                valid_mac_pairs.append((source_mac, target_mac))
+        
+        if len(host_pairs_indices) == 0:
+            return []
+        
+        num_valid_pairs = len(host_pairs_indices) // 2
+        
+        # Compile advanced kernel
+        mod = SourceModule(cuda_batch_paths_kernel)
+        kernel = mod.get_function("reconstruct_paths_batch")
+        
+        # Prepare GPU arrays
+        d_host_pairs = gpuarray.to_gpu(np.array(host_pairs_indices, dtype=np.int32))
+        d_distance_matrix = gpuarray.to_gpu(distance_matrix.flatten().astype(np.float32))
+        d_adjacency_matrix = gpuarray.to_gpu(adjacency_matrix.flatten().astype(np.float32))
+        d_paths_output = gpuarray.zeros((num_valid_pairs, MAX_PATH_LENGTH), dtype=np.int32)
+        d_path_lengths = gpuarray.zeros(num_valid_pairs, dtype=np.int32)
+        
+        # Configure kernel launch
+        block_size = 256
+        grid_size = (num_valid_pairs + block_size - 1) // block_size
+        
+        # Launch batch path reconstruction kernel
+        kernel(
+            np.int32(num_valid_pairs),
+            np.int32(V),
+            d_host_pairs,
+            d_distance_matrix,
+            d_adjacency_matrix,
+            d_paths_output,
+            d_path_lengths,
+            block=(block_size, 1, 1),
+            grid=(grid_size, 1)
+        )
+        
+        # Synchronize and get results
+        cuda.Context.synchronize()
+        paths_output = d_paths_output.get()
+        path_lengths = d_path_lengths.get()
+        
+        # Convert results to path lists
+        valid_paths = []
+        for i in range(num_valid_pairs):
+            path_len = path_lengths[i]
+            if path_len >= 2:  # Valid path
+                path_indices = paths_output[i, :path_len]
+                path_nodes = [index_to_node[idx] for idx in path_indices]
+                valid_paths.append(path_nodes)
+        
+        return valid_paths
+        
+    except Exception as e:
+        print(f"GPU batch path reconstruction failed: {e}")
+        return []

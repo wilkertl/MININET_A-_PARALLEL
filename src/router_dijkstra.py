@@ -1,6 +1,6 @@
 """
 Router using all-pairs Dijkstra algorithm (CPU)
-Optimized implementation to compute all paths at once
+Optimized parallel implementation for best performance
 """
 
 import json
@@ -12,7 +12,7 @@ import concurrent.futures
 import os
 
 # Import Dijkstra implementation
-from dijkstra import dijkstra_cpu, dijkstra_cpu_parallel
+from dijkstra import dijkstra_cpu_parallel
 
 # Detect if Mininet is available
 try:
@@ -116,7 +116,7 @@ def process_batch_worker_dijkstra(host_pairs_batch, distance_matrix, node_to_ind
     return list(all_flows)
 
 class RouterDijkstra():
-    """Manages routing and flow installation using all-pairs Dijkstra algorithm"""
+    """Manages routing and flow installation using parallel all-pairs Dijkstra algorithm"""
     
     def __init__(self, onos_ip='127.0.0.1', port=8181):
         if MININET_AVAILABLE:
@@ -137,8 +137,6 @@ class RouterDijkstra():
         # Node mapping for adjacency matrix
         self.node_to_index = {}
         self.index_to_node = {}
-        
-        self.path_cache = {}
 
     def load_topology_data(self):
         """Load topology data from JSON file with automatic fallback"""
@@ -314,66 +312,12 @@ class RouterDijkstra():
             
             self.build_lookups()
             self.validate_hosts_connectivity()
-            self.path_cache.clear()
             
-            mode = "Mock" if not MININET_AVAILABLE else "Real"
         except Exception as e:
             print(f"Error updating topology: {e}")
             self.hosts = []
             self.switches = []
             self.links = []
-
-    def get_host_switch(self, host_mac):
-        """Get switch ID that host is connected to"""
-        for switch_id in self.switches_set:
-            if (switch_id, host_mac) in self.port_map:
-                return switch_id
-        return None
-
-    def get_switch_for_node(self, node):
-        """Get the switch associated with a node (host MAC or switch ID)"""
-        if node in self.mac_to_ip:
-            return self.get_host_switch(node)
-        elif node in self.switches_set:
-            return node
-        return None
-
-    def reconstruct_path(self, distance_matrix, adjacency_matrix, source_idx, target_idx):
-        """Reconstruct the real path between source and target using backtracking"""
-        V = len(self.index_to_node)
-        INFNTY = 1e9
-        
-        if distance_matrix[source_idx, target_idx] >= INFNTY:
-            return None
-        
-        # Simple path reconstruction for demonstration
-        # In real implementation, you might want to store predecessor information
-        path = [target_idx]
-        current = target_idx
-        
-        while current != source_idx:
-            min_dist = INFNTY
-            predecessor = -1
-            
-            # Find predecessor (neighbor with minimum distance + edge weight = current distance)
-            for neighbor in range(V):
-                if (adjacency_matrix[neighbor, current] > 0 and 
-                    abs(distance_matrix[source_idx, neighbor] + adjacency_matrix[neighbor, current] - 
-                        distance_matrix[source_idx, current]) < 1e-6):
-                    if distance_matrix[source_idx, neighbor] < min_dist:
-                        min_dist = distance_matrix[source_idx, neighbor]
-                        predecessor = neighbor
-            
-            if predecessor == -1:
-                # Cannot reconstruct - return direct path
-                return [self.index_to_node[source_idx], self.index_to_node[target_idx]]
-            
-            path.append(predecessor)
-            current = predecessor
-        
-        # Convert indices to node names and reverse
-        path.reverse()
-        return [self.index_to_node[idx] for idx in path]
 
     def generate_flows(self, flow_tuples):
         """Generate flow structures from tuples"""
@@ -402,28 +346,21 @@ class RouterDijkstra():
         return all_results
 
     def install_all_routes(self, parallel=True):
-        """Install all routes using all-pairs Dijkstra algorithm
+        """
+        Install all routes using parallel all-pairs Dijkstra algorithm (default method)
         
         Args:
-            parallel (bool): If True, use ProcessPoolExecutor; if False, use sequential processing
+            parallel (bool): Ignored - parallel processing is always used for optimal performance
         """
-        api_mode = "Mock" if not MININET_AVAILABLE else "Real"
-        processing_mode = "ProcessPool parallel" if parallel else "sequential"
-        start_time = time.time()
+        print("Installing routes using parallel Dijkstra processing...")
         
         # Build adjacency matrix
         adjacency_matrix = self.build_adjacency_matrix()
         V = len(self.index_to_node)
         
-        # Execute all-pairs Dijkstra (choose parallel or sequential based on size and mode)
+        # Execute all-pairs Dijkstra (always parallel for best performance)
         dijkstra_start = time.time()
-        
-        # Use parallel Dijkstra for larger graphs or when parallel mode is requested
-        if parallel and V >= 10:  # Use parallel for graphs with 10+ nodes
-            distance_matrix = dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=MAX_WORKERS)
-        else:
-            distance_matrix = dijkstra_cpu(V, adjacency_matrix)
-            
+        distance_matrix = dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=MAX_WORKERS)
         dijkstra_time = time.time() - dijkstra_start
         
         # Get unique hosts
@@ -437,90 +374,41 @@ class RouterDijkstra():
         host_pairs = list(combinations(host_macs, 2))
         unique_flows_final = set()
 
-        if parallel:
-            # Parallel processing with ProcessPoolExecutor
-            batch_size = max(BATCH_SIZE, len(host_pairs) // (MAX_WORKERS * 2))
-            host_batches = [host_pairs[i:i + batch_size] for i in range(0, len(host_pairs), batch_size)]
+        # Parallel processing with ProcessPoolExecutor
+        batch_size = max(BATCH_SIZE, len(host_pairs) // (MAX_WORKERS * 2))
+        host_batches = [host_pairs[i:i + batch_size] for i in range(0, len(host_pairs), batch_size)]
 
-            with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = [
-                    executor.submit(
-                        process_batch_worker_dijkstra,
-                        batch,
-                        distance_matrix,
-                        self.node_to_index,
-                        self.index_to_node,
-                        self.port_map,
-                        self.mac_to_ip,
-                        self.switches_set,
-                        adjacency_matrix
-                    )
-                    for batch in host_batches
-                ]
-                
-                # Collect results
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        flow_list = future.result()
-                        unique_flows_final.update(flow_list)
-                    except Exception as e:
-                        print(f"Process batch failed: {e}")
-        else:
-            # Sequential processing
-            for source_mac, target_mac in host_pairs:
-                source_ip = self.mac_to_ip.get(source_mac)
-                target_ip = self.mac_to_ip.get(target_mac)
-                
-                if source_ip == target_ip:
-                    continue
-                
-                source_idx = self.node_to_index.get(source_mac)
-                target_idx = self.node_to_index.get(target_mac)
-                
-                if source_idx is None or target_idx is None:
-                    continue
-                
-                # Reconstruct path using Dijkstra results
-                path = self.reconstruct_path(distance_matrix, adjacency_matrix, source_idx, target_idx)
-                
-                if not path or len(path) < 3:  # Need at least source-switch-target
-                    continue
-                
-                # Generate flows for both directions
-                for direction_path in [path, list(reversed(path))]:
-                    dst_mac = target_mac if direction_path == path else source_mac
-                    src_mac = source_mac if direction_path == path else target_mac
-                    
-                    for i in range(1, len(direction_path) - 1):
-                        current_switch = direction_path[i]
-                        if current_switch in self.switches_set:
-                            in_port = self.port_map.get((current_switch, direction_path[i-1]))
-                            out_port = self.port_map.get((current_switch, direction_path[i+1]))
-                            
-                            if in_port and out_port:
-                                unique_flows_final.add((
-                                    current_switch, in_port, out_port, 
-                                    DEFAULT_PRIORITY, dst_mac, src_mac
-                                ))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [
+                executor.submit(
+                    process_batch_worker_dijkstra,
+                    batch,
+                    distance_matrix,
+                    self.node_to_index,
+                    self.index_to_node,
+                    self.port_map,
+                    self.mac_to_ip,
+                    self.switches_set,
+                    adjacency_matrix
+                )
+                for batch in host_batches
+            ]
+            
+            # Collect results
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    flow_list = future.result()
+                    unique_flows_final.update(flow_list)
+                except Exception as e:
+                    print(f"Process batch failed: {e}")
 
         # Generate and push flows
         all_flows = self.generate_flows(list(unique_flows_final))
 
-        if not all_flows:
-            return []
-
-        calc_time = time.time() - start_time
-        
-        api_start = time.time()
-        api_results = self.push_flows_to_onos(all_flows)
-        api_time = time.time() - api_start
+        if all_flows:
+            api_start = time.time()
+            api_results = self.push_flows_to_onos(all_flows)
+            api_time = time.time() - api_start
+            print(f"Parallel Dijkstra processing: {len(all_flows)} flows installed")
         
         return all_flows
-
-    def install_all_routes_sequential(self):
-        """Install routes using sequential Dijkstra (wrapper for backward compatibility)"""
-        return self.install_all_routes(parallel=False)
-    
-    def install_all_routes_parallel(self):
-        """Install routes using ProcessPoolExecutor (wrapper for backward compatibility)"""
-        return self.install_all_routes(parallel=True)
