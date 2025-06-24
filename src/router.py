@@ -6,16 +6,23 @@ import os
 import concurrent.futures
 import math
 
-from onos_api import OnosApi 
+# Detect if Mininet is available
+try:
+    import mininet
+    from onos_api import OnosApi
+    MININET_AVAILABLE = True
+except ImportError:
+    from onos_api_mock import OnosApiMock as OnosApi
+    MININET_AVAILABLE = False
 
-# Class constants
+# Router configuration constants
 DEFAULT_PRIORITY = 10
 HOST_SWITCH_WEIGHT = 0.1
 MAX_WORKERS = 16
 BATCH_SIZE = 1000
 
 def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switches_set, precomputed_switch_distances):
-    """Process a batch of host pairs - standalone worker function"""
+    """Process a batch of host pairs for parallel route computation"""
     
     def clean_dpid(dpid):
         """Remove 'of:' prefix from DPID if present"""
@@ -29,7 +36,7 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
         return None
 
     def get_switch_for_node(node):
-        """Get the switch associated with a node (host MAC or switch ID)"""
+        """Get switch for node (host MAC or switch ID)"""
         if node in host_lookup:
             return get_host_switch(node)
         elif node in switches_set:
@@ -37,26 +44,23 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
         return None
 
     def heuristic_function(node1, node2):
-        """Ultra-fast O(1) heuristic using precomputed switch distances"""
+        """A* heuristic using precomputed switch distances"""
         if node1 == node2:
             return 0.0
         
         if not precomputed_switch_distances:
             return 0.0
         
-        # Get switches for both nodes
         switch1 = get_switch_for_node(node1)
         switch2 = get_switch_for_node(node2)
         
         if not switch1 or not switch2:
             return 0.0
         
-        # Clean switch IDs and O(1) lookup
         clean_switch1 = clean_dpid(switch1)
         clean_switch2 = clean_dpid(switch2)
         switch_distance = precomputed_switch_distances.get(clean_switch1, {}).get(clean_switch2, 0.0)
         
-        # Add host-switch costs
         cost = 0.0
         if node1 in host_lookup:
             cost += HOST_SWITCH_WEIGHT
@@ -65,8 +69,8 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
         
         return cost + switch_distance
 
-    # Process batch
     all_flows = set()
+    path_cache = {}
     
     for source_mac, target_mac in host_pairs_batch:
         source_ip = host_lookup.get(source_mac)
@@ -75,72 +79,93 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
         if source_ip == target_ip:
             continue
 
-        try:
-            path = nx.astar_path(
-                graph, 
-                source=source_mac, 
-                target=target_mac,
-                heuristic=heuristic_function,
-                weight='weight'
-            )
+        pair_key = tuple(sorted((source_mac, target_mac)))
+        
+        if pair_key in path_cache:
+            path = path_cache[pair_key]
+            if (source_mac, target_mac) != pair_key:
+                path = list(reversed(path))
+        else:
+            try:
+                path = nx.astar_path(
+                    graph, 
+                    source=source_mac, 
+                    target=target_mac,
+                    heuristic=heuristic_function,
+                    weight='weight'
+                )
+                path_cache[pair_key] = path
+            except nx.NetworkXNoPath:
+                continue
 
-            # Generate flows for both directions
-            for direction_path in [path, list(reversed(path))]:
-                dst_mac = target_mac if direction_path == path else source_mac
-                src_mac = source_mac if direction_path == path else target_mac
-                
-                for i in range(1, len(direction_path) - 1):
-                    current_switch = direction_path[i]
-                    if current_switch in switches_set:
-                        prev_node = direction_path[i-1]
-                        next_node = direction_path[i+1]
-                        
-                        in_port = port_map.get((current_switch, prev_node))
-                        out_port = port_map.get((current_switch, next_node))
-                        
-                        if in_port and out_port:
-                            all_flows.add((
-                                current_switch, in_port, out_port, 
-                                DEFAULT_PRIORITY, dst_mac, src_mac
-                            ))
-        except nx.NetworkXNoPath:
-            continue  # Skip logging for performance
+        for direction_path in [path, list(reversed(path))]:
+            dst_mac = target_mac if direction_path == path else source_mac
+            src_mac = source_mac if direction_path == path else target_mac
+            
+            for i in range(1, len(direction_path) - 1):
+                current_switch = direction_path[i]
+                if current_switch in switches_set:
+                    prev_node = direction_path[i-1]
+                    next_node = direction_path[i+1]
+                    
+                    in_port = port_map.get((current_switch, prev_node))
+                    out_port = port_map.get((current_switch, next_node))
+                    
+                    if in_port and out_port:
+                        all_flows.add((
+                            current_switch, in_port, out_port, 
+                            DEFAULT_PRIORITY, dst_mac, src_mac
+                        ))
     
     return list(all_flows)
 
 class Router():
+    """Manages routing and flow installation using A* algorithm"""
+    
     def __init__(self, onos_ip='127.0.0.1', port=8181):
-        self.api = OnosApi(onos_ip, port)
+        if MININET_AVAILABLE:
+            self.api = OnosApi(onos_ip, port)
+        else:
+            self.api = OnosApi()
+        
         self.hosts = []
         self.switches = []
         self.links = []
         self.topology_data = self.load_topology_data()
         
-        # Fast lookups
         self.mac_to_ip = {}
         self.mac_to_location = {}
         self.port_map = {}
         self.switches_set = set()
         
-        # A* optimizations
         self.path_cache = {}
         self.precomputed_switch_distances = {}
 
     def load_topology_data(self):
-        """Load topology data from JSON file"""
-        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'topology_data.json')
+        """Load topology data from JSON file with automatic fallback"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         
-        if not os.path.exists(json_path):
-            print("topology_data.json file not found.")
-            return None
-            
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data
-        except Exception as e:
-            print(f"Error loading topology_data.json: {e}")
-            return None
+        possible_files = []
+        if not MININET_AVAILABLE:
+            possible_files.append(('topology_data_mock.json', 'mock'))
+            possible_files.append(('topology_data.json', 'real'))
+        else:
+            possible_files.append(('topology_data.json', 'real'))
+            possible_files.append(('topology_data_mock.json', 'mock'))
+        
+        for filename, file_type in possible_files:
+            json_path = os.path.join(base_dir, filename)
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    return data
+                except Exception as e:
+                    print(f"Error loading {filename}: {e}")
+                    continue
+        
+        print("Router: No topology data file found")
+        return None
 
     def clean_dpid(self, dpid):
         """Remove 'of:' prefix from DPID if present"""
@@ -165,7 +190,6 @@ class Router():
 
     def _precompute_all_switch_distances(self, graph):
         """Precompute shortest path distances between all switch pairs"""
-        print("Precomputing all switch-to-switch distances...")
         start_time = time.time()
         
         # Extract switch-only subgraph
@@ -192,7 +216,6 @@ class Router():
             
             calc_time = time.time() - start_time
             total_pairs = len(switch_nodes) * len(switch_nodes)
-            print(f"Precomputed {total_pairs} switch distance pairs in {calc_time:.3f}s")
             
             return precomputed_distances
             
@@ -260,12 +283,15 @@ class Router():
     def build_graph(self):
         """Build topology graph with optimized weights"""
         if not self.topology_data:
-            raise ValueError("Topology data required for A*")
+            print("Warning: No topology data available, trying to reload...")
+            self.topology_data = self.load_topology_data()
+            if not self.topology_data:
+                raise ValueError("Topology data required for A* - ensure network is created first")
         
         G = nx.Graph()
         
         if not self.hosts:
-            raise ValueError("No hosts found in ONOS")
+            raise ValueError("No hosts found in ONOS - ensure network is created and router.update() is called")
         
         # Add host-switch connections with fixed weight
         for host in self.hosts:
@@ -290,20 +316,26 @@ class Router():
                 G.add_edge(src, dst, weight=1.0)
                 print(f"Using default weight for link {clean_src}-{clean_dst}")
         
-        print(f"Graph built: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
         return G
 
     def update(self):
         """Update network topology from ONOS"""
-        self.hosts = self.api.get_hosts()
-        self.switches = self.api.get_switches()
-        self.links = self.api.get_links()
-        
-        self.build_lookups()
-        self.validate_hosts_connectivity()
-        self.path_cache.clear()
-        
-        print(f"Topology updated: {len(self.hosts)} hosts, {len(self.switches)} switches, {len(self.links)} links")
+        try:
+            self.hosts = self.api.get_hosts()
+            self.switches = self.api.get_switches()
+            self.links = self.api.get_links()
+            
+            self.build_lookups()
+            self.validate_hosts_connectivity()
+            self.path_cache.clear()
+            
+            mode = "Mock" if not MININET_AVAILABLE else "Real"
+        except Exception as e:
+            print(f"Error updating topology: {e}")
+            # Initialize empty data structures if API fails
+            self.hosts = []
+            self.switches = []
+            self.links = []
 
     def get_host_switch(self, host_mac):
         """Get switch ID that host is connected to"""
@@ -366,7 +398,6 @@ class Router():
 
     def push_flows_to_onos(self, flows_data, batch_size=5000):
         """Send flows to ONOS in sequential batches"""
-        return []  # Disabled for testing
         batches = [flows_data[i:i + batch_size] for i in range(0, len(flows_data), batch_size)]
         
         all_results = []
@@ -382,14 +413,12 @@ class Router():
         Args:
             parallel (bool): If True, use ProcessPoolExecutor; if False, use sequential processing
         """
-        mode = "ProcessPoolExecutor parallel" if parallel else "sequential"
-        print(f"Starting {mode} route installation...")
-        
+        api_mode = "Mock" if not MININET_AVAILABLE else "Real"
+        processing_mode = "ProcessPoolExecutor parallel" if parallel else "sequential"
         start_time = time.time()
         graph = self.build_graph()
         
         if not graph or not graph.nodes:
-            print("Graph not built or is empty")
             return []
 
         # Precompute distances
@@ -402,7 +431,6 @@ class Router():
         host_macs = [host['mac'] for host in unique_hosts.values()]
         
         if len(host_macs) < 2:
-            print("Insufficient hosts to create routes")
             return []
 
         # Create host pairs
@@ -413,8 +441,6 @@ class Router():
             # Parallel processing with ProcessPoolExecutor
             batch_size = max(BATCH_SIZE, len(host_pairs) // (MAX_WORKERS * 2))
             host_batches = [host_pairs[i:i + batch_size] for i in range(0, len(host_pairs), batch_size)]
-
-            print(f"Processing {len(host_pairs)} pairs in {len(host_batches)} batches with {MAX_WORKERS} processes")
 
             with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 # Submit all batches with all necessary data as parameters
@@ -465,7 +491,6 @@ class Router():
                         )
                         self.path_cache[pair_key] = path
                     except nx.NetworkXNoPath:
-                        print(f"No path found between {source_mac} and {target_mac}")
                         continue
                 
                 # Generate flows for both directions
@@ -489,18 +514,15 @@ class Router():
         all_flows = self.generate_flows(list(unique_flows_final))
 
         if not all_flows:
-            print("No flows generated")
             return []
 
         calc_time = time.time() - start_time
-        print(f"{mode} A* calculation: {calc_time:.2f}s")
         
         api_start = time.time()
         api_results = self.push_flows_to_onos(all_flows)
         api_time = time.time() - api_start
         
-        print(f"{mode} installation completed: {len(api_results)} flows in {calc_time + api_time:.2f}s")
-        return api_results
+        return all_flows
 
     def install_all_routes_sequential(self):
         """Install routes using sequential A* (wrapper for backward compatibility)"""

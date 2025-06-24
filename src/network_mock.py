@@ -1,22 +1,14 @@
 import os
 import math
 import random
-import networkx as nx
 import json
-from mininet.net import Mininet
-from mininet.topo import Topo
-from mininet.node import RemoteController
-from mininet.link import TCLink
-from mininet.cli import CLI
-from mininet.log import setLogLevel, info
 from time import sleep
 from dotenv import load_dotenv
-from threading import Lock
 
 load_dotenv()
 random.seed(42)
 
-# Topology configurations
+# Network configuration constants
 MIN_BACKBONE_BW_MBPS = 30.0  
 MAX_BACKBONE_BW_MBPS = 100.0  
 PROPAGATION_SPEED_KM_PER_MS = 200  
@@ -39,15 +31,96 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-def generate_network_topology_data(topo, net):
-    """Generate simplified topology data for JSON file"""
-    if hasattr(topo, 'get_topology_data'):
-        return topo.get_topology_data(net)
-    else:
-        return {"distances": {}, "bandwidth": {}}
+class MockHost:
+    """Mock host object to simulate Mininet host"""
+    def __init__(self, name, ip):
+        self.name = name
+        self.IP = ip
+        self.connected_switches = []
+    
+    def cmd(self, command):
+        """Mock command execution"""
+        return f"Mock execution of: {command}"
 
-class SimpleTopo(Topo):
+class MockSwitch:
+    """Mock switch object to simulate Mininet switch"""
+    def __init__(self, name, dpid):
+        self.name = name
+        self.dpid = dpid
+        self.connected_hosts = []
+        self.connected_switches = []
+
+class MockController:
+    """Mock controller object"""
+    def __init__(self, name, ip, port):
+        self.name = name
+        self.ip = ip
+        self.port = port
+
+class MockNetwork:
+    """Mock network object to simulate Mininet network"""
+    def __init__(self, topo):
+        self.topo = topo
+        self.hosts = []
+        self.switches = []
+        self.controllers = []
+        self.links = []
+        self.running = False
+    
+    def addController(self, controller):
+        self.controllers.append(controller)
+    
     def build(self):
+        """Mock build process"""
+        print("Mock: Building network...")
+        # Simulate topology building
+        if hasattr(self.topo, 'mock_hosts'):
+            self.hosts = self.topo.mock_hosts
+        if hasattr(self.topo, 'mock_switches'):
+            self.switches = self.topo.mock_switches
+        if hasattr(self.topo, 'mock_links'):
+            self.links = self.topo.mock_links
+    
+    def start(self):
+        """Mock start process"""
+        print("Mock: Starting network...")
+        self.running = True
+    
+    def stop(self):
+        """Mock stop process"""
+        print("Mock: Stopping network...")
+        self.running = False
+
+class MockTopo:
+    """Base mock topology class"""
+    def __init__(self):
+        self.mock_hosts = []
+        self.mock_switches = []
+        self.mock_links = []
+        self.topology_data = {"distances": {}, "bandwidth": {}}
+    
+    def addHost(self, name, ip=None):
+        host = MockHost(name, ip)
+        self.mock_hosts.append(host)
+        return host
+    
+    def addSwitch(self, name, dpid=None, protocols=None):
+        switch = MockSwitch(name, dpid)
+        self.mock_switches.append(switch)
+        return switch
+    
+    def addLink(self, node1, node2, **params):
+        link = {
+            'node1': node1,
+            'node2': node2,
+            'params': params
+        }
+        self.mock_links.append(link)
+        return link
+
+class SimpleTopo(MockTopo):
+    def build(self):
+        super().__init__()
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
         positions = {
@@ -87,32 +160,33 @@ class SimpleTopo(Topo):
     def get_topology_data(self, net):
         return self.topology_data
 
-class Tower(Topo):
+class Tower(MockTopo):
     def build(self, num_spines=2, num_leafs=4, hosts_per_leaf=5):
+        super().__init__()
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
         base_spine_positions = [
-            {"lat": -23.5505, "lon": -46.6333},  # São Paulo
-            {"lat": -22.9068, "lon": -43.1729},  # Rio de Janeiro  
-            {"lat": -15.7801, "lon": -47.9292},  # Brasília
-            {"lat": -19.9167, "lon": -43.9345},  # Belo Horizonte
-            {"lat": -8.0476, "lon": -34.8770},   # Recife
-            {"lat": -3.7319, "lon": -38.5267},   # Fortaleza
+            {"lat": -23.5505, "lon": -46.6333},
+            {"lat": -22.9068, "lon": -43.1729},
+            {"lat": -15.7801, "lon": -47.9292},
+            {"lat": -19.9167, "lon": -43.9345},
+            {"lat": -8.0476, "lon": -34.8770},
+            {"lat": -3.7319, "lon": -38.5267},
         ]
         
         base_leaf_positions = [
-            {"lat": -23.5320, "lon": -46.6414}, # São Paulo área
-            {"lat": -23.5689, "lon": -46.6239}, # São Paulo área 
-            {"lat": -22.9519, "lon": -43.2105}, # Rio área
-            {"lat": -22.8305, "lon": -43.2192}, # Rio área
-            {"lat": -15.7500, "lon": -47.8800}, # Brasília área
-            {"lat": -15.8100, "lon": -48.0000}, # Brasília área
-            {"lat": -19.8900, "lon": -43.9000}, # BH área
-            {"lat": -19.9400, "lon": -43.9700}, # BH área
+            {"lat": -23.5320, "lon": -46.6414},
+            {"lat": -23.5689, "lon": -46.6239},
+            {"lat": -22.9519, "lon": -43.2105},
+            {"lat": -22.8305, "lon": -43.2192},
+            {"lat": -15.7500, "lon": -47.8800},
+            {"lat": -15.8100, "lon": -48.0000},
+            {"lat": -19.8900, "lon": -43.9000},
+            {"lat": -19.9400, "lon": -43.9700},
         ]
         
         dpid_positions = {}
-        
+        spines = []
         for i in range(num_spines):
             spine_dpid = make_dpid(i + 1)
             if i < len(base_spine_positions):
@@ -123,7 +197,13 @@ class Tower(Topo):
                     "lat": base_pos["lat"] + random.uniform(-2, 2),
                     "lon": base_pos["lon"] + random.uniform(-2, 2)
                 }
+            
+            spine_name = f's{i+1}'
+            spine = self.addSwitch(spine_name, dpid=spine_dpid, protocols="OpenFlow13")
+            spines.append(spine)
         
+        # Create leaf switches
+        leafs = []
         for i in range(num_leafs):
             leaf_dpid = make_dpid(10 + i + 1)
             if i < len(base_leaf_positions):
@@ -136,7 +216,12 @@ class Tower(Topo):
                     "lat": spine_pos["lat"] + random.uniform(-0.5, 0.5),
                     "lon": spine_pos["lon"] + random.uniform(-0.5, 0.5)
                 }
+            
+            leaf_name = f'l{i+1}'
+            leaf = self.addSwitch(leaf_name, dpid=leaf_dpid, protocols="OpenFlow13")
+            leafs.append(leaf)
         
+        # Create hosts
         host_positions = {}
         total_hosts = num_leafs * hosts_per_leaf
         
@@ -156,16 +241,24 @@ class Tower(Topo):
                 "lat": leaf_pos["lat"] + lat_offset,
                 "lon": leaf_pos["lon"] + lon_offset
             }
-        
-        all_positions = {**dpid_positions, **host_positions}
-        
-        spines = []
-        for i in range(num_spines):
-            spine_name = f's{i+1}'
-            spine_dpid = make_dpid(i + 1)
-            spine = self.addSwitch(spine_name, dpid=spine_dpid, protocols="OpenFlow13")
-            spines.append(spine)
+            
+            host = self.addHost(f'h{i}', ip=host_ip)
+            
+            # Connect host to leaf
+            leaf = leafs[leaf_idx]
+            host_leaf_dist = haversine_distance(
+                host_positions[host_ip]["lat"], host_positions[host_ip]["lon"],
+                dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"]
+            )
+            host_leaf_delay = host_leaf_dist / PROPAGATION_SPEED_KM_PER_MS
+            
+            self.addLink(host, leaf, 
+                       bw=HOST_BW_MBPS, 
+                       delay=f"{host_leaf_delay:.2f}ms")
+            self.topology_data["bandwidth"][f"{host_ip}-{leaf_dpid}"] = HOST_BW_MBPS
+            self.topology_data["distances"][f"{host_ip}-{leaf_dpid}"] = host_leaf_dist
 
+        # Connect spines to each other
         for i in range(num_spines):
             for j in range(i + 1, num_spines):
                 spine1_dpid = make_dpid(i + 1)
@@ -184,13 +277,7 @@ class Tower(Topo):
                             max_queue_size=50,
                             use_htb=True)
                 self.topology_data["bandwidth"][f"{spine1_dpid}-{spine2_dpid}"] = MIN_BACKBONE_BW_MBPS
-
-        leafs = []
-        for i in range(num_leafs):
-            leaf_name = f'l{i+1}'
-            leaf_dpid = make_dpid(10 + i + 1)
-            leaf = self.addSwitch(leaf_name, dpid=leaf_dpid, protocols="OpenFlow13")
-            leafs.append(leaf)
+                self.topology_data["distances"][f"{spine1_dpid}-{spine2_dpid}"] = dist
 
         for i, leaf in enumerate(leafs):
             leaf_dpid = make_dpid(11 + i)
@@ -217,60 +304,8 @@ class Tower(Topo):
                             max_queue_size=queue_size,
                             use_htb=True)
                 self.topology_data["bandwidth"][f"{leaf_dpid}-{spine_dpid}"] = link_bw_mbps
+                self.topology_data["distances"][f"{leaf_dpid}-{spine_dpid}"] = leaf_spine_dist
 
-            for j in range(hosts_per_leaf):
-                host_global_num = (i * hosts_per_leaf) + j + 1
-                
-                subnet = (host_global_num - 1) // 253
-                host_num = ((host_global_num - 1) % 253) + 2
-                host_ip = f'10.0.{subnet}.{host_num}'
-                
-                host = self.addHost(f'h{host_global_num}', ip=host_ip)
-                
-                host_leaf_dist = haversine_distance(
-                    host_positions[host_ip]["lat"], host_positions[host_ip]["lon"],
-                    dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"]
-                )
-                host_leaf_delay = host_leaf_dist / PROPAGATION_SPEED_KM_PER_MS
-                
-                self.addLink(host, leaf, 
-                           bw=HOST_BW_MBPS, 
-                           delay=f"{host_leaf_delay:.2f}ms")
-                self.topology_data["bandwidth"][f"{host_ip}-{leaf_dpid}"] = HOST_BW_MBPS
-        
-        for i in range(1, total_hosts + 1):
-            leaf_idx = ((i-1) // hosts_per_leaf)
-            leaf_dpid = make_dpid(10 + leaf_idx + 1)
-            subnet = (i - 1) // 253
-            host_num = ((i - 1) % 253) + 2
-            host_ip = f"10.0.{subnet}.{host_num}"
-            
-            host_leaf_dist = haversine_distance(
-                host_positions[host_ip]["lat"], host_positions[host_ip]["lon"],
-                dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"]
-            )
-            self.topology_data["distances"][f"{host_ip}-{leaf_dpid}"] = host_leaf_dist
-        
-        for i in range(num_spines):
-            for j in range(i + 1, num_spines):
-                spine1_dpid = make_dpid(i + 1)
-                spine2_dpid = make_dpid(j + 1)
-                dist = haversine_distance(
-                    dpid_positions[spine1_dpid]["lat"], dpid_positions[spine1_dpid]["lon"],
-                    dpid_positions[spine2_dpid]["lat"], dpid_positions[spine2_dpid]["lon"]
-                )
-                self.topology_data["distances"][f"{spine1_dpid}-{spine2_dpid}"] = dist
-        
-        for i in range(num_leafs):
-            leaf_dpid = make_dpid(11 + i)
-            for j in range(num_spines):
-                spine_dpid = make_dpid(1 + j)
-                dist = haversine_distance(
-                    dpid_positions[leaf_dpid]["lat"], dpid_positions[leaf_dpid]["lon"],
-                    dpid_positions[spine_dpid]["lat"], dpid_positions[spine_dpid]["lon"]
-                )
-                self.topology_data["distances"][f"{leaf_dpid}-{spine_dpid}"] = dist
-        
         for i in range(num_leafs):
             leaf_hosts = []
             start_host = i * hosts_per_leaf + 1
@@ -291,41 +326,36 @@ class Tower(Topo):
     def get_topology_data(self, net):
         return self.topology_data
 
-class GmlTopo(Topo):
-    """Mininet topology from GML file"""
-    def build(self, gml_file):
+class GmlTopo(MockTopo):
+    """Mock GML topology generating realistic network structure"""
+    def build(self, gml_file=None):
+        super().__init__()
         self.topology_data = {"distances": {}, "bandwidth": {}}
         
-        if not os.path.exists(gml_file):
-            raise FileNotFoundError(f"GML file '{gml_file}' not found.")
-        
-        G = nx.read_gml(gml_file, label='id')
-        
-        switch_nodes = [n for n, d in G.nodes(data=True) if 'Internal' not in d.get('label', '')][:100]
-        backbone_nodes = [n for n, d in G.nodes(data=True) if d.get('label', '').startswith('backbone')]
-        edge_nodes = [n for n in switch_nodes if n not in backbone_nodes][:50]
-        
+        num_switches = 20
         switches = {}
-        for i, node in enumerate(switch_nodes):
+        
+        for i in range(num_switches):
             switch_name = f's{i+1}'
             switch_dpid = make_dpid(i + 1)
-            switches[node] = {
+            switch = self.addSwitch(switch_name, dpid=switch_dpid, protocols="OpenFlow13")
+            switches[i] = {
                 'name': switch_name,
                 'dpid': switch_dpid,
-                'mininet_obj': self.addSwitch(switch_name, dpid=switch_dpid, protocols="OpenFlow13")
+                'mininet_obj': switch
             }
         
-        for src, dst in G.edges():
-            if src in switches and dst in switches:
-                src_dpid = switches[src]['dpid']
-                dst_dpid = switches[dst]['dpid']
+        for i in range(num_switches):
+            for j in range(i + 1, min(i + 4, num_switches)):
+                src_dpid = switches[i]['dpid']
+                dst_dpid = switches[j]['dpid']
                 
                 bw = random.uniform(MIN_BACKBONE_BW_MBPS, MAX_BACKBONE_BW_MBPS)
                 delay = random.uniform(1, 20)
                 
                 self.addLink(
-                    switches[src]['mininet_obj'], 
-                    switches[dst]['mininet_obj'],
+                    switches[i]['mininet_obj'], 
+                    switches[j]['mininet_obj'],
                     bw=bw, 
                     delay=f"{delay:.2f}ms",
                     loss=0.1,
@@ -335,29 +365,19 @@ class GmlTopo(Topo):
                 self.topology_data["bandwidth"][f"{src_dpid}-{dst_dpid}"] = bw
         
         node_positions = {}
-        for node, data in G.nodes(data=True):
-            if 'Longitude' in data and 'Latitude' in data:
-                try:
-                    lon = float(data['Longitude'])
-                    lat = float(data['Latitude'])
-                    node_positions[node] = {"lat": lat, "lon": lon}
-                except ValueError:
-                    continue
+        for i in range(num_switches):
+            angle = 2 * math.pi * i / num_switches
+            lat = -15.0 + 5 * math.cos(angle)
+            lon = -47.0 + 5 * math.sin(angle)
+            node_positions[i] = {"lat": lat, "lon": lon}
         
-        if not node_positions:
-            for i, node in enumerate(G.nodes()):
-                angle = 2 * math.pi * i / len(G.nodes())
-                lat = -15.0 + 10 * math.cos(angle)
-                lon = -47.0 + 10 * math.sin(angle)
-                node_positions[node] = {"lat": lat, "lon": lon}
-        
-        edge_switches = [(node, switches[node]) for node in edge_nodes if node in switches][:MIN_HOSTS_PER_EDGE_SWITCH * 10]
-        
+        edge_switches = list(range(min(10, num_switches)))
         host_counter = 1
-        host_to_switch_mapping = {}
         
-        for node, switch_info in edge_switches:
+        for switch_idx in edge_switches:
+            switch_info = switches[switch_idx]
             num_hosts = random.randint(MIN_HOSTS_PER_EDGE_SWITCH, MAX_HOSTS_PER_EDGE_SWITCH)
+            
             for _ in range(num_hosts):
                 subnet = (host_counter - 1) // 253
                 host_num = ((host_counter - 1) % 253) + 2
@@ -371,73 +391,80 @@ class GmlTopo(Topo):
                             delay="0.1ms",
                             use_htb=True)
                 
-                host_to_switch_mapping[host_ip] = switch_info['dpid']
                 self.topology_data["bandwidth"][f"{host_ip}-{switch_info['dpid']}"] = HOST_BW_MBPS
                 self.topology_data["distances"][f"{host_ip}-{switch_info['dpid']}"] = 0.1
                 
                 host_counter += 1
         
-        for src_node in switch_nodes:
-            if src_node in switches and src_node in node_positions:
-                src_dpid = switches[src_node]['dpid']
-                for dst_node in switch_nodes:
-                    if dst_node in switches and dst_node in node_positions and src_node != dst_node:
-                        dst_dpid = switches[dst_node]['dpid']
-                        pos1, pos2 = node_positions[src_node], node_positions[dst_node]
-                        dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
-                        self.topology_data["distances"][f"{src_dpid}-{dst_dpid}"] = dist
-        
-        switch_to_hosts = {}
-        for host_ip, switch_dpid in host_to_switch_mapping.items():
-            if switch_dpid not in switch_to_hosts:
-                switch_to_hosts[switch_dpid] = []
-            switch_to_hosts[switch_dpid].append(host_ip)
-        
-        for switch_dpid, host_list in switch_to_hosts.items():
-            for host1_ip in host_list:
-                for host2_ip in host_list:
-                    if host1_ip != host2_ip:
-                        self.topology_data["distances"][f"{host1_ip}-{host2_ip}"] = 0.1
+        for i in range(num_switches):
+            src_dpid = switches[i]['dpid']
+            for j in range(i + 1, num_switches):
+                dst_dpid = switches[j]['dpid']
+                pos1, pos2 = node_positions[i], node_positions[j]
+                dist = haversine_distance(pos1["lat"], pos1["lon"], pos2["lat"], pos2["lon"])
+                self.topology_data["distances"][f"{src_dpid}-{dst_dpid}"] = dist
 
     def get_topology_data(self, net):
         return self.topology_data
 
+def generate_network_topology_data(topo, net):
+    """Generate simplified topology data for JSON file"""
+    if hasattr(topo, 'get_topology_data'):
+        return topo.get_topology_data(net)
+    else:
+        return {"distances": {}, "bandwidth": {}}
+
 def run(topo):
-    setLogLevel('info')
+    print("Mock: Setting up network...")
 
-    net = Mininet(topo=topo, build=False, controller=None, ipBase='10.0.0.0/8', link=TCLink)
+    net = MockNetwork(topo)
+    
     controllers = os.getenv('CONTROLERS', '172.17.0.2').split(',')
-
     for i, ip in enumerate(controllers):
         name = f"c{i}"
-        c = RemoteController(name, ip=ip, port=6653)
+        c = MockController(name, ip, 6653)
         net.addController(c)
 
     net.build()
     net.start()
-    sleep(2)
 
-    for host in net.hosts:
-        host.lock = Lock()
-        host.cmd("ping -c 1 10.0.0.1 &")
+    print(f"Mock: Network running with {len(net.hosts)} hosts and {len(net.switches)} switches")
 
     topology_data = generate_network_topology_data(topo, net)
     
-    json_filename = "topology_data.json"
+    json_filename = "topology_data_mock.json"
     json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), json_filename)
     
     try:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(topology_data, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+        print(f"Mock: Topology data saved to {json_path}")
+    except Exception as e:
+        print(f"Mock: Error saving topology data: {e}")
 
     return net
 
+def info(msg):
+    """Mock info function"""
+    print(f"Mock Info: {msg}")
+
+def setLogLevel(level):
+    """Mock log level setter"""
+    print(f"Mock: Log level set to {level}")
+
+class CLI:
+    """Mock CLI class"""
+    def __init__(self, net):
+        self.net = net
+        print("Mock CLI: Network ready for testing")
+        print(f"Mock CLI: Available hosts: {[h.name for h in net.hosts]}")
+        print(f"Mock CLI: Available switches: {[s.name for s in net.switches]}")
+        print("Mock CLI: Use this network object for routing algorithm tests")
+
 if __name__ == '__main__':
-    setLogLevel('info')
+    print("Mock Network: Starting...")
     net = run(Tower())
-    info("*** Starting CLI...\n")
+    info("*** Starting Mock CLI...")
     CLI(net)
-    info("*** Stopping network...\n")
-    net.stop()
+    info("*** Stopping mock network...")
+    net.stop() 

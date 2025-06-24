@@ -1,5 +1,4 @@
 networkx
 matplotlib
-mininet
 requests
 python-dotenv

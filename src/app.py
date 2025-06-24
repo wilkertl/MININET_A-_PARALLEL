@@ -9,8 +9,17 @@ from render_topology import render_topology
 # Detect if Mininet is available
 MININET_AVAILABLE = False
 try:
+    import mininet
     from network import *
     MININET_AVAILABLE = True
+except ImportError:
+    from network_mock import *
+
+# Detect if PyCUDA is available
+PYCUDA_AVAILABLE = False
+try:
+    from router_pycuda import RouterPyCUDA
+    PYCUDA_AVAILABLE = True
 except ImportError:
     pass
 
@@ -25,6 +34,7 @@ class App():
     def __init__(self):
         self.net = None
         self.router = Router()
+        self.router_pycuda = RouterPyCUDA() if PYCUDA_AVAILABLE else None
         self.api = self.router.api
         
         self.commands = [
@@ -35,19 +45,30 @@ class App():
             {"name": "delete_routes", "function": self.delete_routes},
             {"name": "render_topology", "function": self.render_topology},
         ]
+       
+        # Add PyCUDA command only if PyCUDA is available
+        if PYCUDA_AVAILABLE:
+            self.commands.append({"name": "create_routes_pycuda", "function": self.create_routes_pycuda})
+        
+        # Network commands - work with both Mininet and Mock
+        network_commands = [
+            {"name": "simple_net", "function": self.simple_net},
+            {"name": "tower_net", "function": self.tower_net},
+            {"name": "gml_net", "function": self.gml_net},
+            {"name": "clean_network", "function": self.clean_network},
+        ]
         
         if MININET_AVAILABLE:
-            mininet_commands = [
-                {"name": "simple_net", "function": self.simple_net},
-                {"name": "tower_net", "function": self.tower_net},
-                {"name": "gml_net", "function": self.gml_net},
+            # Additional Mininet-only commands
+            mininet_only_commands = [
                 {"name": "ping_random", "function": self.ping_random},
                 {"name": "ping_all", "function": self.ping_all},
                 {"name": "iperf_random", "function": self.iperf_random},
                 {"name": "traffic", "function": self.start_dummy_traffic},
-                {"name": "clean_network", "function": self.clean_network},
             ]
-            self.commands.extend(mininet_commands)
+            network_commands.extend(mininet_only_commands)
+        
+        self.commands.extend(network_commands)
         
 
     def main_loop(self):
@@ -67,9 +88,11 @@ class App():
         print(f"Command ({cmd}) not found.")
 
     def clean_network(self):
+        """Clean up network and flows"""
         if not MININET_AVAILABLE:
-            print("Mininet not available - cleaning only flows")
+            print("Mock: Cleaning network and flows")
             self.api.delete_inactive_devices()
+            self.net = None
             return
         
         if self.net:
@@ -85,27 +108,42 @@ class App():
         self.net = None
         self.api.delete_inactive_devices()
 
-    def simple_net(self):
-        if not MININET_AVAILABLE:
-            print("Command requires Mininet!")
-            return
+    def _create_network(self, topo_class, network_name, *args, **kwargs):
+        """Create network with Mininet or Mock automatically"""
         self.clean_network()
-        self.net = run(SimpleTopo())
+        
+        if MININET_AVAILABLE:
+            print(f"Creating {network_name} with Mininet...")
+            topo = topo_class(*args, **kwargs)
+            self.net = run(topo)
+            print(f"{network_name} created successfully!")
+        else:
+            print(f"Mininet not available. Creating mock {network_name}...")
+            mock_topo = topo_class()
+            
+            if args or kwargs:
+                mock_topo.build(*args, **kwargs)
+            else:
+                mock_topo.build()
+            
+            self.net = run(mock_topo)
+            
+            if hasattr(self.api, 'update_from_network_mock'):
+                self.api.update_from_network_mock(self.net)
+                print(f"Mock {network_name} created! {len(self.api.get_hosts())} hosts, {len(self.api.get_switches())} switches, {len(self.api.get_links())} links")
+            
+            self.router.topology_data = self.router.load_topology_data()
+            print(f"Router: Reloaded topology data after mock network creation")
+
+    def simple_net(self):
+        self._create_network(SimpleTopo, "Simple Network")
 
     def tower_net(self):
-        if not MININET_AVAILABLE:
-            print("Command requires Mininet!")
-            return
-        self.clean_network()
-        self.net = run(Tower(num_spines=5, num_leafs=20, hosts_per_leaf=15))
+        self._create_network(Tower, "Tower Network", num_spines=10, num_leafs=25, hosts_per_leaf=25)
 
     def gml_net(self):
-        if not MININET_AVAILABLE:
-            print("Command requires Mininet!")
-            return
-        self.clean_network()
         gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
-        self.net = run(GmlTopo(gml_file=gml_file))
+        self._create_network(GmlTopo, "GML Network", gml_file=gml_file)
 
     def help(self):
         for cmd in self.commands:
@@ -130,11 +168,23 @@ class App():
         total_time = time.time() - start
         print(f"Completed. Time spent: {total_time:.2f}s")
 
+    def create_routes_pycuda(self):
+        if not PYCUDA_AVAILABLE or not self.router_pycuda:
+            print("PyCUDA não disponível - comando PyCUDA não habilitado")
+            return
+        
+        start = time.time()
+        self.router_pycuda.update()
+        self.router_pycuda.install_all_routes_pycuda()
+        total_time = time.time() - start
+        print(f"Completed. Time spent: {total_time:.2f}s")
+
     def delete_routes(self):
         self.api.delete_all_flows()
         print("Completed.")
 
     def ping_random(self):
+        """Ping between two random hosts"""
         if not MININET_AVAILABLE or not self.net:
             print("No active network!")
             return
@@ -144,6 +194,7 @@ class App():
         return results
 
     def ping_all(self):
+        """Ping all hosts to test connectivity"""
         if not MININET_AVAILABLE or not self.net:
             print("Mininet not available or no network created!")
             return
@@ -153,6 +204,7 @@ class App():
         print(f"Completed. Time spent: {total_time:.2f}s")
 
     def iperf_random(self):
+        """Run iperf between two random hosts"""
         if not MININET_AVAILABLE or not self.net:
             print("No active network!")
             return
@@ -160,6 +212,7 @@ class App():
         self.net.iperf([h1, h2])
 	
     def start_dummy_traffic(self):
+        """Start dummy traffic between all host pairs"""
         if not MININET_AVAILABLE or not self.net:
             print("No active network!")
             return
@@ -181,7 +234,10 @@ class App():
             t.join()
         
     def render_topology(self):
+        """Render network topology visualization"""
         render_topology()
+
+
 
 def main():
     app = App()
