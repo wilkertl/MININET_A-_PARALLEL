@@ -14,7 +14,14 @@ try:
     MININET_AVAILABLE = True
 except ImportError:
     from network_mock import *
-    print("Mininet not available - using mock network")
+
+# Detect if PyCUDA is available
+PYCUDA_AVAILABLE = False
+try:
+    from router_pycuda import RouterPyCUDA
+    PYCUDA_AVAILABLE = True
+except ImportError:
+    pass
 
 def unique_host_pairs(hosts):
     random.shuffle(hosts)
@@ -27,6 +34,7 @@ class App():
     def __init__(self):
         self.net = None
         self.router = Router()
+        self.router_pycuda = RouterPyCUDA() if PYCUDA_AVAILABLE else None
         self.api = self.router.api
         
         self.commands = [
@@ -37,6 +45,10 @@ class App():
             {"name": "delete_routes", "function": self.delete_routes},
             {"name": "render_topology", "function": self.render_topology},
         ]
+       
+        # Add PyCUDA command only if PyCUDA is available
+        if PYCUDA_AVAILABLE:
+            self.commands.append({"name": "create_routes_pycuda", "function": self.create_routes_pycuda})
         
         # Network commands - work with both Mininet and Mock
         network_commands = [
@@ -127,7 +139,7 @@ class App():
         self._create_network(SimpleTopo, "Simple Network")
 
     def tower_net(self):
-        self._create_network(Tower, "Tower Network", num_spines=50, num_leafs=50, hosts_per_leaf=100)
+        self._create_network(Tower, "Tower Network", num_spines=10, num_leafs=40, hosts_per_leaf=20)
 
     def gml_net(self):
         gml_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'brasil.gml')
@@ -153,6 +165,17 @@ class App():
         start = time.time()
         self.router.update()
         self.router.install_all_routes(parallel=True)
+        total_time = time.time() - start
+        print(f"Completed. Time spent: {total_time:.2f}s")
+
+    def create_routes_pycuda(self):
+        if not PYCUDA_AVAILABLE or not self.router_pycuda:
+            print("PyCUDA não disponível - comando PyCUDA não habilitado")
+            return
+        
+        start = time.time()
+        self.router_pycuda.update()
+        self.router_pycuda.install_all_routes_pycuda()
         total_time = time.time() - start
         print(f"Completed. Time spent: {total_time:.2f}s")
 

@@ -358,7 +358,7 @@ class OnosApiMock:
             
             self.mock_flows[device_id] = core_flows
             total_deleted += deleted_count
-        
+        print(f"Mock ONOS: {total_deleted} flows removed")
 
     def delete_inactive_devices(self):
         """Delete inactive devices from mock ONOS (no-op for mock)"""
@@ -368,19 +368,3 @@ class OnosApiMock:
         if not network_mock:
             return
         self._load_topology_data()
-
-def main():
-    """Test mock ONOS API"""
-    api = OnosApiMock()
-    print("Mock ONOS API methods:")
-    methods = [method for method in dir(api) if not method.startswith('_') and callable(getattr(api, method))]
-    for method in methods:
-        print(f"  {method}")
-    
-    print(f"\nMock data loaded:")
-    print(f"  Hosts: {len(api.get_hosts())}")
-    print(f"  Switches: {len(api.get_switches())}")
-    print(f"  Links: {len(api.get_links())}")
-
-if __name__ == "__main__":
-    main()

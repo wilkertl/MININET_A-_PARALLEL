@@ -1,10 +1,18 @@
-import networkx as nx
-from itertools import combinations
-import time
+"""
+Router using all-pairs Dijkstra algorithm (CPU)
+Optimized implementation to compute all paths at once
+"""
+
 import json
-import os
+import time
+import numpy as np
+from collections import defaultdict
+from itertools import combinations
 import concurrent.futures
-import math
+import os
+
+# Import Dijkstra implementation
+from dijkstra import dijkstra_cpu, dijkstra_cpu_parallel
 
 # Detect if Mininet is available
 try:
@@ -21,56 +29,56 @@ HOST_SWITCH_WEIGHT = 0.1
 MAX_WORKERS = 16
 BATCH_SIZE = 1000
 
-def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switches_set, precomputed_switch_distances):
-    """Process a batch of host pairs for parallel route computation"""
+def process_batch_worker_dijkstra(host_pairs_batch, distance_matrix, node_to_index, index_to_node, 
+                                 port_map, host_lookup, switches_set, adjacency_matrix):
+    """Process a batch of host pairs for parallel route computation using Dijkstra results"""
     
-    def clean_dpid(dpid):
-        """Remove 'of:' prefix from DPID if present"""
-        return dpid[3:] if dpid.startswith('of:') else dpid
-
-    def get_host_switch(host_mac):
-        """Get switch ID that host is connected to"""
-        for switch_id in switches_set:
-            if (switch_id, host_mac) in port_map:
-                return switch_id
-        return None
-
-    def get_switch_for_node(node):
-        """Get switch for node (host MAC or switch ID)"""
-        if node in host_lookup:
-            return get_host_switch(node)
-        elif node in switches_set:
-            return node
-        return None
-
-    def heuristic_function(node1, node2):
-        """A* heuristic using precomputed switch distances"""
-        if node1 == node2:
-            return 0.0
+    def reconstruct_path_worker(source_node, target_node, distance_matrix, adjacency_matrix, 
+                               node_to_index, index_to_node):
+        """Reconstruct path using distance matrix and adjacency matrix"""
+        if source_node not in node_to_index or target_node not in node_to_index:
+            return None
         
-        if not precomputed_switch_distances:
-            return 0.0
+        source_idx = node_to_index[source_node]
+        target_idx = node_to_index[target_node]
         
-        switch1 = get_switch_for_node(node1)
-        switch2 = get_switch_for_node(node2)
+        INFNTY = 1e9
+        if distance_matrix[source_idx, target_idx] >= INFNTY:
+            return None
         
-        if not switch1 or not switch2:
-            return 0.0
+        if source_idx == target_idx:
+            return [source_node]
         
-        clean_switch1 = clean_dpid(switch1)
-        clean_switch2 = clean_dpid(switch2)
-        switch_distance = precomputed_switch_distances.get(clean_switch1, {}).get(clean_switch2, 0.0)
+        # Reconstruct path using backtracking
+        V = len(index_to_node)
+        path = [target_idx]
+        current = target_idx
         
-        cost = 0.0
-        if node1 in host_lookup:
-            cost += HOST_SWITCH_WEIGHT
-        if node2 in host_lookup:
-            cost += HOST_SWITCH_WEIGHT
+        while current != source_idx:
+            min_dist = INFNTY
+            predecessor = -1
+            
+            # Find predecessor (neighbor with minimum distance + edge weight = current distance)
+            for neighbor in range(V):
+                if (adjacency_matrix[neighbor, current] > 0 and 
+                    abs(distance_matrix[source_idx, neighbor] + adjacency_matrix[neighbor, current] - 
+                        distance_matrix[source_idx, current]) < 1e-6):
+                    if distance_matrix[source_idx, neighbor] < min_dist:
+                        min_dist = distance_matrix[source_idx, neighbor]
+                        predecessor = neighbor
+            
+            if predecessor == -1:
+                # Cannot reconstruct - return None
+                return None
+            
+            path.append(predecessor)
+            current = predecessor
         
-        return cost + switch_distance
-
+        # Convert indices to node names and reverse
+        path.reverse()
+        return [index_to_node[idx] for idx in path]
+    
     all_flows = set()
-    path_cache = {}
     
     for source_mac, target_mac in host_pairs_batch:
         source_ip = host_lookup.get(source_mac)
@@ -78,26 +86,14 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
         
         if source_ip == target_ip:
             continue
-
-        pair_key = tuple(sorted((source_mac, target_mac)))
         
-        if pair_key in path_cache:
-            path = path_cache[pair_key]
-            if (source_mac, target_mac) != pair_key:
-                path = list(reversed(path))
-        else:
-            try:
-                path = nx.astar_path(
-                    graph, 
-                    source=source_mac, 
-                    target=target_mac,
-                    heuristic=heuristic_function,
-                    weight='weight'
-                )
-                path_cache[pair_key] = path
-            except nx.NetworkXNoPath:
-                continue
-
+        path = reconstruct_path_worker(source_mac, target_mac, distance_matrix, 
+                                     adjacency_matrix, node_to_index, index_to_node)
+        
+        if not path or len(path) < 3:  # Need at least source-switch-target
+            continue
+        
+        # Generate flows for both directions
         for direction_path in [path, list(reversed(path))]:
             dst_mac = target_mac if direction_path == path else source_mac
             src_mac = source_mac if direction_path == path else target_mac
@@ -119,8 +115,8 @@ def process_batch_worker(host_pairs_batch, graph, port_map, host_lookup, switche
     
     return list(all_flows)
 
-class Router():
-    """Manages routing and flow installation using A* algorithm"""
+class RouterDijkstra():
+    """Manages routing and flow installation using all-pairs Dijkstra algorithm"""
     
     def __init__(self, onos_ip='127.0.0.1', port=8181):
         if MININET_AVAILABLE:
@@ -138,8 +134,11 @@ class Router():
         self.port_map = {}
         self.switches_set = set()
         
+        # Node mapping for adjacency matrix
+        self.node_to_index = {}
+        self.index_to_node = {}
+        
         self.path_cache = {}
-        self.precomputed_switch_distances = {}
 
     def load_topology_data(self):
         """Load topology data from JSON file with automatic fallback"""
@@ -164,7 +163,7 @@ class Router():
                     print(f"Error loading {filename}: {e}")
                     continue
         
-        print("Router: No topology data file found")
+        print("RouterDijkstra: No topology data file found")
         return None
 
     def clean_dpid(self, dpid):
@@ -187,41 +186,6 @@ class Router():
                 return distances[key]
         
         return None
-
-    def _precompute_all_switch_distances(self, graph):
-        """Precompute shortest path distances between all switch pairs"""
-        start_time = time.time()
-        
-        # Extract switch-only subgraph
-        switch_nodes = [node for node in graph.nodes() if node in self.switches_set]
-        switch_subgraph = graph.subgraph(switch_nodes).copy()
-        
-        if not switch_nodes:
-            print("No switches found for precomputation")
-            return {}
-        
-        try:
-            # Use Dijkstra all-pairs for efficiency
-            all_shortest_paths = dict(nx.all_pairs_dijkstra_path_length(switch_subgraph, weight='weight'))
-            
-            # Convert to nested dictionary with clean DPIDs
-            precomputed_distances = {}
-            for source_switch in all_shortest_paths:
-                clean_source = self.clean_dpid(source_switch)
-                precomputed_distances[clean_source] = {}
-                
-                for target_switch, distance in all_shortest_paths[source_switch].items():
-                    clean_target = self.clean_dpid(target_switch)
-                    precomputed_distances[clean_source][clean_target] = distance
-            
-            calc_time = time.time() - start_time
-            total_pairs = len(switch_nodes) * len(switch_nodes)
-            
-            return precomputed_distances
-            
-        except Exception as e:
-            print(f"Error in switch distance precomputation: {e}")
-            return {}
 
     def build_lookups(self):
         """Build dictionaries for O(1) lookups"""
@@ -280,43 +244,66 @@ class Router():
         
         return True
 
-    def build_graph(self):
-        """Build topology graph with optimized weights"""
+    def build_adjacency_matrix(self):
+        """Build adjacency matrix from topology for Dijkstra algorithm"""
         if not self.topology_data:
             print("Warning: No topology data available, trying to reload...")
             self.topology_data = self.load_topology_data()
             if not self.topology_data:
-                raise ValueError("Topology data required for A* - ensure network is created first")
-        
-        G = nx.Graph()
+                raise ValueError("Topology data required for Dijkstra - ensure network is created first")
         
         if not self.hosts:
             raise ValueError("No hosts found in ONOS - ensure network is created and router.update() is called")
         
-        # Add host-switch connections with fixed weight
+        # Collect all unique nodes
+        nodes = set()
+        for host in self.hosts:
+            nodes.add(host['mac'])
+            switch_id = host['locations'][0]['elementId']
+            nodes.add(switch_id)
+        
+        for link in self.links:
+            nodes.add(link['src']['device'])
+            nodes.add(link['dst']['device'])
+        
+        nodes = sorted(list(nodes))
+        V = len(nodes)
+        
+        # Create node mappings
+        self.node_to_index = {node: i for i, node in enumerate(nodes)}
+        self.index_to_node = {i: node for i, node in enumerate(nodes)}
+        
+        # Initialize adjacency matrix with float32
+        adjacency_matrix = np.zeros((V, V), dtype=np.float32)
+        
+        # Add host-switch connections
         for host in self.hosts:
             host_mac = host['mac']
             switch_id = host['locations'][0]['elementId']
-            G.add_edge(host_mac, switch_id, weight=HOST_SWITCH_WEIGHT)
+            i = self.node_to_index[host_mac]
+            j = self.node_to_index[switch_id]
+            
+            weight = HOST_SWITCH_WEIGHT
+            adjacency_matrix[i, j] = weight
+            adjacency_matrix[j, i] = weight
         
-        if not self.links:
-            raise ValueError("No switch links found")
-        
-        # Add switch-switch connections with real distance
+        # Add switch-switch connections
         for link in self.links:
             src = link['src']['device']
             dst = link['dst']['device']
+            i = self.node_to_index[src]
+            j = self.node_to_index[dst]
+            
             clean_src = self.clean_dpid(src)
             clean_dst = self.clean_dpid(dst)
             
             distance = self.find_distance(clean_src, clean_dst)
-            if distance is not None:
-                G.add_edge(src, dst, weight=distance)
-            else:
-                G.add_edge(src, dst, weight=1.0)
-                print(f"Using default weight for link {clean_src}-{clean_dst}")
+            weight = float(distance) if distance is not None else 10.0
+            
+            adjacency_matrix[i, j] = weight
+            adjacency_matrix[j, i] = weight
         
-        return G
+        return adjacency_matrix
 
     def update(self):
         """Update network topology from ONOS"""
@@ -332,7 +319,6 @@ class Router():
             mode = "Mock" if not MININET_AVAILABLE else "Real"
         except Exception as e:
             print(f"Error updating topology: {e}")
-            # Initialize empty data structures if API fails
             self.hosts = []
             self.switches = []
             self.links = []
@@ -352,34 +338,42 @@ class Router():
             return node
         return None
 
-    def heuristic_function(self, node1, node2):
-        """Ultra-fast O(1) heuristic using precomputed switch distances"""
-        if node1 == node2:
-            return 0.0
+    def reconstruct_path(self, distance_matrix, adjacency_matrix, source_idx, target_idx):
+        """Reconstruct the real path between source and target using backtracking"""
+        V = len(self.index_to_node)
+        INFNTY = 1e9
         
-        if not self.precomputed_switch_distances:
-            return 0.0
+        if distance_matrix[source_idx, target_idx] >= INFNTY:
+            return None
         
-        # Get switches for both nodes
-        switch1 = self.get_switch_for_node(node1)
-        switch2 = self.get_switch_for_node(node2)
+        # Simple path reconstruction for demonstration
+        # In real implementation, you might want to store predecessor information
+        path = [target_idx]
+        current = target_idx
         
-        if not switch1 or not switch2:
-            return 0.0
+        while current != source_idx:
+            min_dist = INFNTY
+            predecessor = -1
+            
+            # Find predecessor (neighbor with minimum distance + edge weight = current distance)
+            for neighbor in range(V):
+                if (adjacency_matrix[neighbor, current] > 0 and 
+                    abs(distance_matrix[source_idx, neighbor] + adjacency_matrix[neighbor, current] - 
+                        distance_matrix[source_idx, current]) < 1e-6):
+                    if distance_matrix[source_idx, neighbor] < min_dist:
+                        min_dist = distance_matrix[source_idx, neighbor]
+                        predecessor = neighbor
+            
+            if predecessor == -1:
+                # Cannot reconstruct - return direct path
+                return [self.index_to_node[source_idx], self.index_to_node[target_idx]]
+            
+            path.append(predecessor)
+            current = predecessor
         
-        # Clean switch IDs and O(1) lookup
-        clean_switch1 = self.clean_dpid(switch1)
-        clean_switch2 = self.clean_dpid(switch2)
-        switch_distance = self.precomputed_switch_distances.get(clean_switch1, {}).get(clean_switch2, 0.0)
-        
-        # Add host-switch costs
-        cost = 0.0
-        if node1 in self.mac_to_ip:
-            cost += HOST_SWITCH_WEIGHT
-        if node2 in self.mac_to_ip:
-            cost += HOST_SWITCH_WEIGHT
-        
-        return cost + switch_distance
+        # Convert indices to node names and reverse
+        path.reverse()
+        return [self.index_to_node[idx] for idx in path]
 
     def generate_flows(self, flow_tuples):
         """Generate flow structures from tuples"""
@@ -408,23 +402,29 @@ class Router():
         return all_results
 
     def install_all_routes(self, parallel=True):
-        """Install all routes using A* with precomputed distances
+        """Install all routes using all-pairs Dijkstra algorithm
         
         Args:
             parallel (bool): If True, use ProcessPoolExecutor; if False, use sequential processing
         """
         api_mode = "Mock" if not MININET_AVAILABLE else "Real"
-        processing_mode = "ProcessPoolExecutor parallel" if parallel else "sequential"
+        processing_mode = "ProcessPool parallel" if parallel else "sequential"
         start_time = time.time()
-        graph = self.build_graph()
         
-        if not graph or not graph.nodes:
-            return []
-
-        # Precompute distances
-        precomputed_switch_distances = self._precompute_all_switch_distances(graph)
-        if not parallel:
-            self.precomputed_switch_distances = precomputed_switch_distances
+        # Build adjacency matrix
+        adjacency_matrix = self.build_adjacency_matrix()
+        V = len(self.index_to_node)
+        
+        # Execute all-pairs Dijkstra (choose parallel or sequential based on size and mode)
+        dijkstra_start = time.time()
+        
+        # Use parallel Dijkstra for larger graphs or when parallel mode is requested
+        if parallel and V >= 10:  # Use parallel for graphs with 10+ nodes
+            distance_matrix = dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=MAX_WORKERS)
+        else:
+            distance_matrix = dijkstra_cpu(V, adjacency_matrix)
+            
+        dijkstra_time = time.time() - dijkstra_start
         
         # Get unique hosts
         unique_hosts = {host['ipAddresses'][0]: host for host in self.hosts}
@@ -443,16 +443,17 @@ class Router():
             host_batches = [host_pairs[i:i + batch_size] for i in range(0, len(host_pairs), batch_size)]
 
             with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                # Submit all batches with all necessary data as parameters
                 futures = [
                     executor.submit(
-                        process_batch_worker,
+                        process_batch_worker_dijkstra,
                         batch,
-                        graph,
+                        distance_matrix,
+                        self.node_to_index,
+                        self.index_to_node,
                         self.port_map,
                         self.mac_to_ip,
                         self.switches_set,
-                        precomputed_switch_distances
+                        adjacency_matrix
                     )
                     for batch in host_batches
                 ]
@@ -465,7 +466,7 @@ class Router():
                     except Exception as e:
                         print(f"Process batch failed: {e}")
         else:
-            # Sequential processing with path caching
+            # Sequential processing
             for source_mac, target_mac in host_pairs:
                 source_ip = self.mac_to_ip.get(source_mac)
                 target_ip = self.mac_to_ip.get(target_mac)
@@ -473,34 +474,26 @@ class Router():
                 if source_ip == target_ip:
                     continue
                 
-                # Use ordered tuple as cache key
-                pair_key = tuple(sorted((source_mac, target_mac)))
+                source_idx = self.node_to_index.get(source_mac)
+                target_idx = self.node_to_index.get(target_mac)
                 
-                if pair_key in self.path_cache:
-                    path = self.path_cache[pair_key]
-                    if (source_mac, target_mac) != pair_key:
-                        path = list(reversed(path))
-                else:
-                    try:
-                        path = nx.astar_path(
-                            graph, 
-                            source=source_mac, 
-                            target=target_mac,
-                            heuristic=self.heuristic_function,
-                            weight='weight'
-                        )
-                        self.path_cache[pair_key] = path
-                    except nx.NetworkXNoPath:
-                        continue
+                if source_idx is None or target_idx is None:
+                    continue
+                
+                # Reconstruct path using Dijkstra results
+                path = self.reconstruct_path(distance_matrix, adjacency_matrix, source_idx, target_idx)
+                
+                if not path or len(path) < 3:  # Need at least source-switch-target
+                    continue
                 
                 # Generate flows for both directions
                 for direction_path in [path, list(reversed(path))]:
                     dst_mac = target_mac if direction_path == path else source_mac
                     src_mac = source_mac if direction_path == path else target_mac
                     
-                    for i in range(1, len(direction_path) - 1): 
+                    for i in range(1, len(direction_path) - 1):
                         current_switch = direction_path[i]
-                        if current_switch in self.switches_set:  
+                        if current_switch in self.switches_set:
                             in_port = self.port_map.get((current_switch, direction_path[i-1]))
                             out_port = self.port_map.get((current_switch, direction_path[i+1]))
                             
@@ -525,7 +518,7 @@ class Router():
         return all_flows
 
     def install_all_routes_sequential(self):
-        """Install routes using sequential A* (wrapper for backward compatibility)"""
+        """Install routes using sequential Dijkstra (wrapper for backward compatibility)"""
         return self.install_all_routes(parallel=False)
     
     def install_all_routes_parallel(self):
