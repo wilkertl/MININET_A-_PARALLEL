@@ -181,43 +181,37 @@ def generate_graphs(data):
             ys[y["name"]].append(y["time"])
 
     width = 0.35
-    i = 0
-    for file in files:
-        x_num.append(i)
-        i+= 1.5
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    for k in range(len(files)):
+        fig, ax = plt.subplots(figsize=(20, 6))
 
-    j  = 0
-    print()
-    for key in ys.keys():
-        x = [i + (width * j) for i in x_num]
-        print(x)
-        ax.bar(x, ys[key], width, label=key)
-        j += 1
+        j  = 0
+        for key in ys.keys():
+            y = ys[key][k]
+            ax.bar([j], [y], width, label=key)
+            j += width
 
-    ax.set_xlabel('Topology')
-    ax.set_ylabel('Execution Time (s)')
-    ax.set_title('Execution Time')
-    ax.set_xticks(x)
-    ax.set_xticklabels(files, rotation=45, ha='right')
-    ax.legend()
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+        ax.set_xlabel('Topology '  + files[k])
+        ax.set_ylabel('Execution Time (s)')
+        ax.set_title('Execution Time')
+        ax.set_xticks([])
+        ax.legend()
+        ax.grid(True, axis='y', linestyle='--', alpha=0.6)
 
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.show()
+        break
 
-
-def main():
-    generate_graphs( full_test() )
-    return
+def old_main():
     print("=== Router Performance Benchmark ===")
     
     results = []
     
     # Test A* router (sequential + parallel)
-    astar_result = benchmark_astar_router()
+    astar_result = benchmark_astar_router_sequential()
+    astar_p_result = benchmark_astar_router_parallel()
     results.append(astar_result)
+    results.append(astar_p_result)
     
     # Test Dijkstra router (parallel only)
     dijkstra_result = benchmark_dijkstra_router()
@@ -272,6 +266,28 @@ def main():
                 else:
                     cpu_advantage = fastest_gpu[1] / fastest_cpu[1]
                     print(f"🖥️  CPU Advantage: {cpu_advantage:.2f}x faster than GPU")
+
+def save_test_result(data):
+    import json
+    with open('results.json', 'w') as f:
+        json.dump(data, f)
+
+def read_results():
+    import json
+
+    with open('results.json', 'r') as f:
+        data = json.load(f)
+
+    return data
+
+
+def main():
+    # data = full_test()
+    # save_test_result(data)
+    data  = read_results()
+    generate_graphs(data)
+    return
+
 
 if __name__ == "__main__":
     main() 
