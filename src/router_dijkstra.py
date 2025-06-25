@@ -118,15 +118,16 @@ def process_batch_worker_dijkstra(host_pairs_batch, distance_matrix, node_to_ind
 class RouterDijkstra():
     """Manages routing and flow installation using parallel all-pairs Dijkstra algorithm"""
     
-    def __init__(self, onos_ip='127.0.0.1', port=8181):
+    def __init__(self, topo_file=None, onos_ip='127.0.0.1', port=8181):
         if MININET_AVAILABLE:
             self.api = OnosApi(onos_ip, port)
         else:
-            self.api = OnosApi()
+            self.api = OnosApi(topo_file=topo_file)
         
         self.hosts = []
         self.switches = []
         self.links = []
+        self.topo_file = topo_file
         self.topology_data = self.load_topology_data()
         
         self.mac_to_ip = {}
@@ -143,14 +144,14 @@ class RouterDijkstra():
         base_dir = os.path.dirname(os.path.abspath(__file__))
         
         possible_files = []
-        if not MININET_AVAILABLE:
-            possible_files.append(('topology_data_mock.json', 'mock'))
-            possible_files.append(('topology_data.json', 'real'))
+
+        if self.topo_file:
+            possible_files.append(self.topo_file)
         else:
-            possible_files.append(('topology_data.json', 'real'))
-            possible_files.append(('topology_data_mock.json', 'mock'))
+            possible_files.append('topology_data_mock.json')
+            possible_files.append('topology_data.json')
         
-        for filename, file_type in possible_files:
+        for filename in possible_files:
             json_path = os.path.join(base_dir, filename)
             if os.path.exists(json_path):
                 try:

@@ -463,7 +463,9 @@ class CLI:
 
 if __name__ == '__main__':
     print("Mock Network: Starting...")
-    net = run(Tower())
+    topo = Tower()
+    topo.build(num_leafs=12, num_spines=10, hosts_per_leaf=64)
+    net = run(topo)
     info("*** Starting Mock CLI...")
     CLI(net)
     info("*** Stopping mock network...")

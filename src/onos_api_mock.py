@@ -9,7 +9,7 @@ load_dotenv()
 class OnosApiMock:
     """Mock ONOS API for testing environment"""
     
-    def __init__(self, onos_ip=None, port=None, username=None, password=None):
+    def __init__(self, topo_file=None, onos_ip=None, port=None, username=None, password=None):
         self.onos_ip = onos_ip or os.getenv('ONOS_IP', '127.0.0.1')
         self.port = port or os.getenv('ONOS_PORT', '8181')
         self.username = username or os.getenv('ONOS_USER', 'onos')
@@ -23,16 +23,15 @@ class OnosApiMock:
         self.mock_links = []
         self.mock_flows = {}
         self.flow_id_counter = 1
-        
+        self.topo_file = topo_file if topo_file else "topology_data_mock.json"
         self._load_topology_data()
         
     def _load_topology_data(self):
         """Load topology data from mock network"""
-        topology_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'topology_data_mock.json')
         
-        if os.path.exists(topology_file):
+        if os.path.exists(self.topo_file):
             try:
-                with open(topology_file, 'r', encoding='utf-8') as f:
+                with open(self.topo_file, 'r', encoding='utf-8') as f:
                     topology_data = json.load(f)
                 self._generate_mock_data_from_topology(topology_data)
             except Exception as e:
@@ -43,7 +42,6 @@ class OnosApiMock:
     
     def _generate_mock_data_from_topology(self, topology_data):
         """Generate mock data based on topology"""
-        
         switches_found = set()
         hosts_found = set()
         

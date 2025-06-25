@@ -21,34 +21,56 @@ try:
 except:
     PYCUDA_AVAILABLE = False
 
-def benchmark_astar_router() -> dict:
+def benchmark_astar_router_sequential(topo_file) -> dict:
     """Test A* router (both sequential and parallel)"""
-    print(f"\nA* Router:")
+    #print(f"\nA* Router:")
     
     try:
-        router = Router()
+        router = Router(topo_file=topo_file)
         router.update()
         
-        results = {'name': 'A* Router'}
+        results = {
+            'name': 'A* (CPU) Sequential',
+        }
         
         # Sequential test
         try:
             start = time.time()
             flows_seq = router.install_all_routes(parallel=False)
             seq_time = time.time() - start
-            results['sequential'] = {'time': seq_time, 'flows': len(flows_seq)}
-            print(f"  Sequential: {len(flows_seq)} flows in {seq_time:.2f}s")
+            results['time'] = seq_time
+            results['flows'] = len(flows_seq)
+            #print(f"  Sequential: {len(flows_seq)} flows in {seq_time:.2f}s")
         except Exception as e:
             print(f"  Sequential: ERROR - {e}")
             results['sequential'] = None
+            
+        return results
+        
+    except Exception as e:
+        print(f"  Initialization ERROR: {e}")
+        return {'name': 'A* Router', 'error': str(e)}
+    
+def benchmark_astar_router_parallel(topo_file) -> dict:
+    """Test A* router (both sequential and parallel)"""
+    #print(f"\nA* Router:")
+    
+    try:
+        router = Router(topo_file=topo_file)
+        router.update()
+        
+        results = {
+            'name': 'A* (CPU) Parallel',
+        }
         
         # Parallel test
         try:
             start = time.time()
             flows_par = router.install_all_routes(parallel=True)
             par_time = time.time() - start
-            results['parallel'] = {'time': par_time, 'flows': len(flows_par)}
-            print(f"  Parallel: {len(flows_par)} flows in {par_time:.2f}s")
+            results['time'] = par_time
+            results['flows'] = len(flows_par)
+            #print(f"  Parallel: {len(flows_par)} flows in {par_time:.2f}s")
         except Exception as e:
             print(f"  Parallel: ERROR - {e}")
             results['parallel'] = None
@@ -59,23 +81,26 @@ def benchmark_astar_router() -> dict:
         print(f"  Initialization ERROR: {e}")
         return {'name': 'A* Router', 'error': str(e)}
 
-def benchmark_dijkstra_router() -> dict:
+def benchmark_dijkstra_router(topo_file) -> dict:
     """Test Dijkstra router (parallel only)"""
-    print(f"\nDijkstra Router:")
+    #print(f"\nDijkstra Router:")
     
     try:
-        router = RouterDijkstra()
+        router = RouterDijkstra(topo_file=topo_file)
         router.update()
         
-        results = {'name': 'Dijkstra Router'}
+        results = {
+            'name': 'Dijkstra (CPU) ',
+        }
         
         # Parallel test only
         try:
             start = time.time()
             flows = router.install_all_routes(parallel=True)
             par_time = time.time() - start
-            results['parallel'] = {'time': par_time, 'flows': len(flows)}
-            print(f"  Parallel: {len(flows)} flows in {par_time:.2f}s")
+            results['time'] = par_time
+            results['flows'] = len(flows)
+            #print(f"  Parallel: {len(flows)} flows in {par_time:.2f}s")
         except Exception as e:
             print(f"  Parallel: ERROR - {e}")
             results['parallel'] = None
@@ -86,23 +111,26 @@ def benchmark_dijkstra_router() -> dict:
         print(f"  Initialization ERROR: {e}")
         return {'name': 'Dijkstra Router', 'error': str(e)}
 
-def benchmark_pycuda_router() -> dict:
+def benchmark_pycuda_router(topo_file) -> dict:
     """Test PyCUDA router (GPU-accelerated only)"""
-    print(f"\nPyCUDA Router:")
+    #print(f"\nPyCUDA Router:")
     
     try:
-        router = RouterPyCUDA()
+        router = RouterPyCUDA(topo_file=topo_file)
         router.update()
         
-        results = {'name': 'PyCUDA Router'}
+        results = {
+            'name': 'Dijkstra (GPU) ',
+        }
         
         # GPU-accelerated test only
         try:
             start = time.time()
             flows = router.install_all_routes()  # Always GPU-optimized
             gpu_time = time.time() - start
-            results['gpu_accelerated'] = {'time': gpu_time, 'flows': len(flows)}
-            print(f"  GPU-accelerated: {len(flows)} flows in {gpu_time:.2f}s")
+            results['time'] = gpu_time
+            results['flows'] = len(flows)
+            #print(f"  GPU-accelerated: {len(flows)} flows in {gpu_time:.2f}s")
         except Exception as e:
             print(f"  GPU-accelerated: ERROR - {e}")
             results['gpu_accelerated'] = None
@@ -113,7 +141,76 @@ def benchmark_pycuda_router() -> dict:
         print(f"  Initialization ERROR: {e}")
         return {'name': 'PyCUDA Router', 'error': str(e)}
 
+def full_test():
+    tests = [benchmark_astar_router_sequential, benchmark_astar_router_parallel, benchmark_dijkstra_router]
+    if PYCUDA_AVAILABLE:
+        tests.append(benchmark_pycuda_router)
+
+    results  = []
+
+    folder = "topologies/"
+    files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+
+    for file in files:
+        r = {
+            "file": file.split("/")[-1].split(".")[0],
+            "data": []
+        }
+
+        for test in tests:
+            r["data"].append(test(file))
+
+        results.append(r)
+
+    print(results[0])
+    return results
+
+import matplotlib.pyplot as plt
+def generate_graphs(data):
+    files = []
+    x_num = []
+    ys = {}
+
+    for d in data:
+        files.append(d["file"])
+
+        for y in d["data"]:
+            if y["name"] not in ys.keys():
+                ys[y["name"]] = []
+
+            ys[y["name"]].append(y["time"])
+
+    width = 0.35
+    i = 0
+    for file in files:
+        x_num.append(i)
+        i+= 1.5
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    j  = 0
+    print()
+    for key in ys.keys():
+        x = [i + (width * j) for i in x_num]
+        print(x)
+        ax.bar(x, ys[key], width, label=key)
+        j += 1
+
+    ax.set_xlabel('Topology')
+    ax.set_ylabel('Execution Time (s)')
+    ax.set_title('Execution Time')
+    ax.set_xticks(x)
+    ax.set_xticklabels(files, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.show()
+
+
 def main():
+    generate_graphs( full_test() )
+    return
     print("=== Router Performance Benchmark ===")
     
     results = []
