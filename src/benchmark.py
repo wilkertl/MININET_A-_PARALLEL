@@ -183,7 +183,7 @@ def generate_graphs(data):
     width = 0.35
 
     for k in range(len(files)):
-        fig, ax = plt.subplots(figsize=(20, 6))
+        fig, ax = plt.subplots(figsize=(8.5, 6))
 
         j  = 0
         for key in ys.keys():
