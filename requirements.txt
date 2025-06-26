@@ -2,3 +2,5 @@ networkx
 matplotlib
 requests
 python-dotenv
+pycuda
+numpy
