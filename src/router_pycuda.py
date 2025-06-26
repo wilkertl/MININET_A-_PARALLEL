@@ -372,6 +372,3 @@ class RouterPyCUDA():
                             current_switch, in_port, out_port, 
                             DEFAULT_PRIORITY, dst_mac, src_mac
                         ))
-
-if __name__ == "__main__":
-    RouterPyCUDA()

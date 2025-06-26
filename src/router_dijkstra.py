@@ -353,7 +353,6 @@ class RouterDijkstra():
         Args:
             parallel (bool): Ignored - parallel processing is always used for optimal performance
         """
-        print("Installing routes using parallel Dijkstra processing...")
         
         # Build adjacency matrix
         adjacency_matrix = self.build_adjacency_matrix()

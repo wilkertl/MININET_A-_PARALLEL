@@ -36,7 +36,3 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
-
-# Files
-*.png
-*.json
