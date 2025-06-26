@@ -61,27 +61,28 @@ def run_gpu_configuration_benchmark():
     # Configuration space to test
     configurations = [
         # (block_size, grid_multiplier, batch_size, max_path_length)
-        (128, 1, 1000, 32),   # Small blocks, small batches
-        (256, 1, 1000, 32),   # Medium blocks
-        (512, 1, 1000, 32),   # Large blocks
-        (1024, 1, 1000, 32),  # Very large blocks
+        (128, 1, 1000, 32),
+        (256, 1, 1000, 32),
+        (512, 1, 1000, 32),
+        (1024, 1, 1000, 32),
         
-        (256, 1, 1000, 32),   # Baseline
-        (256, 2, 1000, 32),   # Double grid size
-        (256, 4, 1000, 32),   # Quad grid size
+        (256, 1, 1000, 32),
+        (256, 2, 1000, 32),
+        (256, 4, 1000, 32),
         
-        (256, 1, 500, 32),    # Smaller batches
-        (256, 1, 2000, 32),   # Larger batches
-        (256, 1, 5000, 32),   # Very large batches
+        (256, 1, 500, 32),
+        (256, 1, 2000, 32),
+        (256, 1, 5000, 32),
         
-        (256, 1, 1000, 16),   # Shorter paths
-        (256, 1, 1000, 64),   # Longer paths
-        (256, 1, 1000, 128),  # Very long paths
+        (256, 1, 1000, 16),
+        (256, 1, 1000, 64),
+        (256, 1, 1000, 128),
         
         # Optimal combinations
-        (512, 2, 2000, 64),   # High performance config
-        (256, 4, 5000, 32),   # High throughput config
-        (1024, 1, 1000, 128), # High capacity config
+        (512, 2, 2000, 64),
+        (256, 4, 5000, 32),
+        (1024, 1, 1000, 128),
+        (256, 2, 5000, 32)
     ]
     
     results = []

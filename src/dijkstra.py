@@ -288,7 +288,7 @@ def dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=None):
     return len_array
 
 def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, node_to_index, index_to_node, 
-                               block_size=256, grid_multiplier=1, max_path_length=64):
+                               block_size=256, grid_multiplier=1, max_path_length=32):
     """
     GPU-accelerated batch path reconstruction with configurable parameters
     Processes multiple host pairs simultaneously on GPU
@@ -304,68 +304,68 @@ def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, n
         max_path_length: Maximum path length (default: 64)
     """
         
-        V = distance_matrix.shape[0]
-        num_pairs = len(host_pairs)
-        MAX_PATH_LENGTH = max_path_length
+    V = distance_matrix.shape[0]
+    num_pairs = len(host_pairs)
+    MAX_PATH_LENGTH = max_path_length
         
-        if num_pairs == 0:
-            return []
+    if num_pairs == 0:
+        return []
         
-        # Prepare host pairs array (convert MAC addresses to indices)
-        host_pairs_indices = []
-        valid_mac_pairs = []
+    # Prepare host pairs array (convert MAC addresses to indices)
+    host_pairs_indices = []
+    valid_mac_pairs = []
         
-        for source_mac, target_mac in host_pairs:
-            if source_mac in node_to_index and target_mac in node_to_index:
-                source_idx = node_to_index[source_mac]
-                target_idx = node_to_index[target_mac]
-                host_pairs_indices.extend([source_idx, target_idx])
-                valid_mac_pairs.append((source_mac, target_mac))
+    for source_mac, target_mac in host_pairs:
+        if source_mac in node_to_index and target_mac in node_to_index:
+            source_idx = node_to_index[source_mac]
+            target_idx = node_to_index[target_mac]
+            host_pairs_indices.extend([source_idx, target_idx])
+            valid_mac_pairs.append((source_mac, target_mac))
         
-        if len(host_pairs_indices) == 0:
-            return []
+    if len(host_pairs_indices) == 0:
+        return []
         
-        num_valid_pairs = len(host_pairs_indices) // 2
+    num_valid_pairs = len(host_pairs_indices) // 2
         
-        # Get compiled kernel (cached)
-        kernel = get_cuda_kernel(MAX_PATH_LENGTH)
+    # Get compiled kernel (cached)
+    kernel = get_cuda_kernel(MAX_PATH_LENGTH)
         
-        # Prepare GPU arrays
-        d_host_pairs = gpuarray.to_gpu(np.array(host_pairs_indices, dtype=np.int32))
-        d_distance_matrix = gpuarray.to_gpu(distance_matrix.flatten().astype(np.float32))
-        d_adjacency_matrix = gpuarray.to_gpu(adjacency_matrix.flatten().astype(np.float32))
-        d_paths_output = gpuarray.zeros((num_valid_pairs, MAX_PATH_LENGTH), dtype=np.int32)
-        d_path_lengths = gpuarray.zeros(num_valid_pairs, dtype=np.int32)
+    # Prepare GPU arrays
+    d_host_pairs = gpuarray.to_gpu(np.array(host_pairs_indices, dtype=np.int32))
+    d_distance_matrix = gpuarray.to_gpu(distance_matrix.flatten().astype(np.float32))
+    d_adjacency_matrix = gpuarray.to_gpu(adjacency_matrix.flatten().astype(np.float32))
+    d_paths_output = gpuarray.zeros((num_valid_pairs, MAX_PATH_LENGTH), dtype=np.int32)
+    d_path_lengths = gpuarray.zeros(num_valid_pairs, dtype=np.int32)
         
-        # Configure kernel launch with custom parameters
-        grid_size = (num_valid_pairs + block_size - 1) // block_size
-        grid_size = max(1, grid_size * grid_multiplier)  # Apply grid multiplier
+    # Configure kernel launch with custom parameters
+    grid_size = (num_valid_pairs + block_size - 1) // block_size
+    grid_size = max(1, grid_size * grid_multiplier)  # Apply grid multiplier
+    
+    # Launch batch path reconstruction kernel
+    kernel(
+        np.int32(num_valid_pairs),
+        np.int32(V),
+        d_host_pairs,
+        d_distance_matrix,
+        d_adjacency_matrix,
+        d_paths_output,
+        d_path_lengths,
+        block=(block_size, 1, 1),
+        grid=(grid_size, 1)
+    )
         
-        # Launch batch path reconstruction kernel
-        kernel(
-            np.int32(num_valid_pairs),
-            np.int32(V),
-            d_host_pairs,
-            d_distance_matrix,
-            d_adjacency_matrix,
-            d_paths_output,
-            d_path_lengths,
-            block=(block_size, 1, 1),
-            grid=(grid_size, 1)
-        )
+    # Synchronize and get results
+    cuda.Context.synchronize()
+    paths_output = d_paths_output.get()
+    path_lengths = d_path_lengths.get()
         
-        # Synchronize and get results
-        cuda.Context.synchronize()
-        paths_output = d_paths_output.get()
-        path_lengths = d_path_lengths.get()
+    # Convert results to path lists
+    valid_paths = []
+    for i in range(num_valid_pairs):
+        path_len = path_lengths[i]
+        if path_len >= 2:  # Valid path
+            path_indices = paths_output[i, :path_len]
+            path_nodes = [index_to_node[idx] for idx in path_indices]
+            valid_paths.append(path_nodes)
         
-        # Convert results to path lists
-        valid_paths = []
-        for i in range(num_valid_pairs):
-            path_len = path_lengths[i]
-            if path_len >= 2:  # Valid path
-                path_indices = paths_output[i, :path_len]
-                path_nodes = [index_to_node[idx] for idx in path_indices]
-                valid_paths.append(path_nodes)
-        
-        return valid_paths
+    return valid_paths

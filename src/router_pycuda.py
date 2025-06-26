@@ -29,7 +29,7 @@ class RouterPyCUDA():
     """Manages routing and flow installation using PyCUDA GPU acceleration"""
     
     def __init__(self, topo_file=None, onos_ip='127.0.0.1', port=8181, 
-                 block_size=256, grid_multiplier=1, batch_size=5000, max_path_length=64):
+                 block_size=256, grid_multiplier=1, batch_size=5000, max_path_length=32):
         if MININET_AVAILABLE:
             self.api = OnosApi(onos_ip, port)
         else:
