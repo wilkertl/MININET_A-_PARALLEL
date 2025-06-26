@@ -10,10 +10,7 @@ import numpy as np
 from itertools import combinations
 
 # Import PyCUDA Dijkstra implementation
-from dijkstra import dijkstra_parallel_pycuda, PYCUDA_AVAILABLE, reconstruct_paths_batch_gpu
-
-if not PYCUDA_AVAILABLE:
-    raise RuntimeError("PyCUDA not available! Install with: pip install pycuda")
+from dijkstra import dijkstra_parallel_pycuda, reconstruct_paths_batch_gpu
 
 # Detect if Mininet is available
 try:
@@ -31,7 +28,8 @@ HOST_SWITCH_WEIGHT = 0.1
 class RouterPyCUDA():
     """Manages routing and flow installation using PyCUDA GPU acceleration"""
     
-    def __init__(self, topo_file=None, onos_ip='127.0.0.1', port=8181):
+    def __init__(self, topo_file=None, onos_ip='127.0.0.1', port=8181, 
+                 block_size=256, grid_multiplier=1, batch_size=5000, max_path_length=64):
         if MININET_AVAILABLE:
             self.api = OnosApi(onos_ip, port)
         else:
@@ -51,6 +49,12 @@ class RouterPyCUDA():
         # Node mapping for adjacency matrix
         self.node_to_index = {}
         self.index_to_node = {}
+        
+        # GPU configuration parameters
+        self.block_size = block_size
+        self.grid_multiplier = grid_multiplier
+        self.batch_size = batch_size
+        self.max_path_length = max_path_length
 
     def load_topology_data(self):
         """Load topology data from JSON file with automatic fallback"""
@@ -323,19 +327,22 @@ class RouterPyCUDA():
         return flows_data
 
     def _generate_flows_gpu_accelerated(self, host_pairs, distance_matrix, adjacency_matrix):
-        """Generate flows using GPU acceleration with minimal CPU processing"""
+        """Generate flows using GPU acceleration with configurable parameters"""
         unique_flows_final = set()
         
-        # Process all host pairs directly on GPU using batch processing
-        batch_size = min(5000, len(host_pairs))  # Very large batch size for GPU
+        # Use configurable batch size
+        batch_size = min(self.batch_size, len(host_pairs))
         
         for i in range(0, len(host_pairs), batch_size):
             batch = host_pairs[i:i + batch_size]
             
-            # GPU batch path reconstruction - this is where the magic happens
+            # GPU batch path reconstruction with custom configuration
             valid_paths = reconstruct_paths_batch_gpu(
                 batch, distance_matrix, adjacency_matrix, 
-                self.node_to_index, self.index_to_node
+                self.node_to_index, self.index_to_node,
+                block_size=self.block_size,
+                grid_multiplier=self.grid_multiplier,
+                max_path_length=self.max_path_length
             )
             
             # Generate flows from GPU-computed paths (minimal CPU work)

@@ -7,15 +7,10 @@ import sys
 import concurrent.futures
 import math
 
-try:
-    import pycuda.autoinit
-    import pycuda.driver as cuda
-    from pycuda.compiler import SourceModule
-    import pycuda.gpuarray as gpuarray
-    PYCUDA_AVAILABLE = True
-except ImportError:
-    PYCUDA_AVAILABLE = False
-    print("PyCUDA not available - install with: pip install pycuda")
+import pycuda.autoinit
+import pycuda.driver as cuda
+from pycuda.compiler import SourceModule
+import pycuda.gpuarray as gpuarray
 
 # CUDA kernel with float32 to avoid overflow
 cuda_kernel_code = """
@@ -83,92 +78,97 @@ __global__ void dijkstra_kernel(int V, float *graph, float *len, float *temp_dis
 
 
 
-# Advanced CUDA kernel for batch path reconstruction (GPU-optimized)
-cuda_batch_paths_kernel = """
-#define INFNTY 1e9f
-#define MAX_PATH_LENGTH 64
+# Global kernel cache to avoid recompilation
+_compiled_kernels = {}
 
-__global__ void reconstruct_paths_batch(
-    int num_pairs,
-    int V,
-    int* host_pairs,           // [num_pairs, 2] - source and target indices
-    float* distance_matrix,    // [V, V] - precomputed distances  
-    float* adjacency_matrix,   // [V, V] - adjacency weights
-    int* paths_output,         // [num_pairs, MAX_PATH_LENGTH] - reconstructed paths
-    int* path_lengths          // [num_pairs] - actual path lengths
-)
-{
-    int pair_idx = blockIdx.x * blockDim.x + threadIdx.x;
+def get_cuda_kernel(max_path_length):
+    """Get or compile CUDA kernel for specific path length"""
+    if max_path_length in _compiled_kernels:
+        return _compiled_kernels[max_path_length]
     
-    if (pair_idx >= num_pairs) return;
-    
-    int source = host_pairs[pair_idx * 2];
-    int target = host_pairs[pair_idx * 2 + 1];
-    
-    // Initialize path length
-    path_lengths[pair_idx] = 0;
-    
-    if (source < 0 || source >= V || target < 0 || target >= V) return;
-    if (distance_matrix[source * V + target] >= INFNTY) return;
-    
-    // Same source and target
-    if (source == target) {
-        paths_output[pair_idx * MAX_PATH_LENGTH] = source;
-        path_lengths[pair_idx] = 1;
-        return;
-    }
-    
-    // Reconstruct path using backtracking
-    int path[MAX_PATH_LENGTH];
-    int path_len = 0;
-    
-    path[path_len++] = target;
-    int current = target;
-    
-    while (current != source && path_len < MAX_PATH_LENGTH - 1) {
-        int best_predecessor = -1;
-        float min_dist = INFNTY;
+    # Generate kernel code with specific MAX_PATH_LENGTH
+    cuda_kernel_code = f"""
+    #define INFNTY 1e9f
+    #define MAX_PATH_LENGTH {max_path_length}
+
+    __global__ void reconstruct_paths_batch(
+        int num_pairs,
+        int V,
+        int* host_pairs,
+        float* distance_matrix,
+        float* adjacency_matrix,
+        int* paths_output,
+        int* path_lengths
+    )
+    {{
+        int pair_idx = blockIdx.x * blockDim.x + threadIdx.x;
         
-        // Find predecessor with minimum distance + edge weight = current distance
-        for (int predecessor = 0; predecessor < V; predecessor++) {
-            if (adjacency_matrix[predecessor * V + current] > 0.0f) {
-                float pred_dist = distance_matrix[source * V + predecessor];
-                float edge_weight = adjacency_matrix[predecessor * V + current];
-                float total_dist = distance_matrix[source * V + current];
-                
-                if (fabsf(pred_dist + edge_weight - total_dist) < 1e-6f) {
-                    if (pred_dist < min_dist) {
-                        min_dist = pred_dist;
-                        best_predecessor = predecessor;
-                    }
-                }
-            }
-        }
+        if (pair_idx >= num_pairs) return;
         
-        if (best_predecessor == -1) break;
+        int source = host_pairs[pair_idx * 2];
+        int target = host_pairs[pair_idx * 2 + 1];
         
-        path[path_len++] = best_predecessor;
-        current = best_predecessor;
-    }
+        path_lengths[pair_idx] = 0;
+        
+        if (source < 0 || source >= V || target < 0 || target >= V) return;
+        if (distance_matrix[source * V + target] >= INFNTY) return;
+        
+        if (source == target) {{
+            paths_output[pair_idx * MAX_PATH_LENGTH] = source;
+            path_lengths[pair_idx] = 1;
+            return;
+        }}
+        
+        int path[MAX_PATH_LENGTH];
+        int path_len = 0;
+        
+        path[path_len++] = target;
+        int current = target;
+        
+        while (current != source && path_len < MAX_PATH_LENGTH - 1) {{
+            int best_predecessor = -1;
+            float min_dist = INFNTY;
+            
+            for (int predecessor = 0; predecessor < V; predecessor++) {{
+                if (adjacency_matrix[predecessor * V + current] > 0.0f) {{
+                    float pred_dist = distance_matrix[source * V + predecessor];
+                    float edge_weight = adjacency_matrix[predecessor * V + current];
+                    float total_dist = distance_matrix[source * V + current];
+                    
+                    if (fabsf(pred_dist + edge_weight - total_dist) < 1e-6f) {{
+                        if (pred_dist < min_dist) {{
+                            min_dist = pred_dist;
+                            best_predecessor = predecessor;
+                        }}
+                    }}
+                }}
+            }}
+            
+            if (best_predecessor == -1) break;
+            
+            path[path_len++] = best_predecessor;
+            current = best_predecessor;
+        }}
+        
+        if (current == source && path_len >= 2) {{
+            for (int i = 0; i < path_len; i++) {{
+                paths_output[pair_idx * MAX_PATH_LENGTH + i] = path[path_len - 1 - i];
+            }}
+            path_lengths[pair_idx] = path_len;
+        }}
+    }}
+    """
     
-    // Reverse path and copy to output
-    if (current == source && path_len >= 2) {
-        for (int i = 0; i < path_len; i++) {
-            paths_output[pair_idx * MAX_PATH_LENGTH + i] = path[path_len - 1 - i];
-        }
-        path_lengths[pair_idx] = path_len;
-    }
-}
-"""
+    mod = SourceModule(cuda_kernel_code)
+    kernel = mod.get_function("reconstruct_paths_batch")
+    _compiled_kernels[max_path_length] = kernel
+    return kernel
 
 def dijkstra_parallel_pycuda(V, adjacency_matrix):
     """
     PyCUDA parallel Dijkstra implementation with float32
     Computes all-pairs shortest paths using GPU acceleration
     """
-    if not PYCUDA_AVAILABLE:
-        print("PyCUDA not available!")
-        return None, None
 
     # Compile CUDA kernel
     mod = SourceModule(cuda_kernel_code)
@@ -287,22 +287,26 @@ def dijkstra_cpu_parallel(V, adjacency_matrix, max_workers=None):
     
     return len_array
 
-def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, node_to_index, index_to_node):
+def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, node_to_index, index_to_node, 
+                               block_size=256, grid_multiplier=1, max_path_length=64):
     """
-    GPU-accelerated batch path reconstruction
+    GPU-accelerated batch path reconstruction with configurable parameters
     Processes multiple host pairs simultaneously on GPU
-    """
-    if not PYCUDA_AVAILABLE:
-        return []
     
-    try:
-        import pycuda.gpuarray as gpuarray
-        from pycuda.compiler import SourceModule
-        import pycuda.driver as cuda
+    Args:
+        host_pairs: List of (source_mac, target_mac) tuples
+        distance_matrix: Precomputed distance matrix
+        adjacency_matrix: Network adjacency matrix
+        node_to_index: MAC to index mapping
+        index_to_node: Index to MAC mapping  
+        block_size: CUDA block size (default: 256)
+        grid_multiplier: Grid size multiplier (default: 1)
+        max_path_length: Maximum path length (default: 64)
+    """
         
         V = distance_matrix.shape[0]
         num_pairs = len(host_pairs)
-        MAX_PATH_LENGTH = 64
+        MAX_PATH_LENGTH = max_path_length
         
         if num_pairs == 0:
             return []
@@ -323,9 +327,8 @@ def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, n
         
         num_valid_pairs = len(host_pairs_indices) // 2
         
-        # Compile advanced kernel
-        mod = SourceModule(cuda_batch_paths_kernel)
-        kernel = mod.get_function("reconstruct_paths_batch")
+        # Get compiled kernel (cached)
+        kernel = get_cuda_kernel(MAX_PATH_LENGTH)
         
         # Prepare GPU arrays
         d_host_pairs = gpuarray.to_gpu(np.array(host_pairs_indices, dtype=np.int32))
@@ -334,9 +337,9 @@ def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, n
         d_paths_output = gpuarray.zeros((num_valid_pairs, MAX_PATH_LENGTH), dtype=np.int32)
         d_path_lengths = gpuarray.zeros(num_valid_pairs, dtype=np.int32)
         
-        # Configure kernel launch
-        block_size = 256
+        # Configure kernel launch with custom parameters
         grid_size = (num_valid_pairs + block_size - 1) // block_size
+        grid_size = max(1, grid_size * grid_multiplier)  # Apply grid multiplier
         
         # Launch batch path reconstruction kernel
         kernel(
@@ -366,7 +369,3 @@ def reconstruct_paths_batch_gpu(host_pairs, distance_matrix, adjacency_matrix, n
                 valid_paths.append(path_nodes)
         
         return valid_paths
-        
-    except Exception as e:
-        print(f"GPU batch path reconstruction failed: {e}")
-        return []

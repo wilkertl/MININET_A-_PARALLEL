@@ -68,7 +68,17 @@ python src/benchmark.py
 
 This will test all algorithms across different network topologies and generate performance charts in the `benchmarks/` directory.
 
-*Note: The benchmark uses pre-built topology files from `topologies/` directory. SDN components (ONOS/Mininet) are optional for benchmarking.*
+### GPU Configuration Benchmark
+
+For detailed GPU parallelism analysis:
+
+```bash
+python src/benchmark_gpu.py
+```
+
+Tests different CUDA configurations (block sizes, grid multipliers, batch sizes) on the heaviest topology and generates analysis charts in the `gpu_analysis/` directory.
+
+*Note: Benchmarks use pre-built topology files from `topologies/` directory. SDN components (ONOS/Mininet) are optional for benchmarking.*
 
 ### SDN Simulation (Optional)
 
@@ -140,6 +150,7 @@ CONTROLERS=172.17.0.2
 ```
 src/
 ├── benchmark.py        # Main benchmark suite
+├── benchmark_gpu.py    # GPU configuration benchmark
 ├── router.py           # A\* sequential/parallel implementation  
 ├── router_dijkstra.py  # Dijkstra CPU implementation
 ├── router_pycuda.py    # Dijkstra GPU implementation
@@ -148,7 +159,8 @@ src/
 └── onos_api.py         # ONOS controller integration
 
 topologies/             # Network topology data (JSON)
-benchmarks/             # Generated performance charts
+benchmarks/             # Algorithm performance charts
+gpu_analysis/           # GPU configuration analysis charts
 ```
 
 ## Performance Benchmarks
@@ -177,6 +189,29 @@ Comparative performance results across different network topologies:
 - **CPU Parallelization**: 2-5x speedup over sequential A\* implementation  
 - **Algorithm Efficiency**: A\* heuristic provides better performance than Dijkstra on most topologies
 - **Scalability**: GPU acceleration becomes more effective as network size increases
+
+</details>
+
+## GPU Configuration Analysis
+
+Detailed analysis of CUDA parallelism parameters on the heaviest network topology:
+
+<details>
+<summary>🔧 View GPU Configuration Analysis</summary>
+
+### Overall Performance Comparison
+<img src="gpu_analysis/overall_performance.png" width="600" alt="GPU Configuration Performance Comparison">
+
+### Parameter Impact Analysis
+<img src="gpu_analysis/block_size_impact.png" width="400" alt="Block Size Impact">
+<img src="gpu_analysis/batch_size_impact.png" width="400" alt="Batch Size Impact">
+<img src="gpu_analysis/grid_multiplier_impact.png" width="400" alt="Grid Multiplier Impact">
+
+**GPU Optimization Insights:**
+- **Block Size**: Optimal performance varies with hardware architecture
+- **Batch Processing**: Larger batches improve GPU utilization
+- **Grid Configuration**: Multiple grid sizes can enhance parallelism
+- **Parameter Tuning**: Configuration significantly impacts performance (up to 3x difference)
 
 </details>
 
